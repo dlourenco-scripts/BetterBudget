@@ -1,0 +1,60 @@
+{
+  "expo": {
+    "name": "Better Budget",
+    "slug": "BudgetApp",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/images/BudgetLogo.png",
+    "scheme": "budgetapp",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.betterbudget.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We need your location to show nearby features and share your live location with trusted contacts.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "We need your location even in the background to keep your contacts updated.",
+        "NSContactsUsageDescription": "We need access to your contacts to let you add trusted friends and family."
+      },
+      "runtimeVersion": "1.0.0"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./src/assets/images/BudgetLogo.png",
+        "backgroundColor": "#101A31"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.betterbudget.app",
+      "permissions": ["android.permission.RECORD_AUDIO"],
+      "runtimeVersion": "1.0.0"
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./src/assets/images/BudgetLogo.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "root": "./src/screens"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them with your friends."
+        }
+      ],
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {
+        "root": "./src/screens"
+      }
+    }
+  }
+}

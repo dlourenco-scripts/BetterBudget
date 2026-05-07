@@ -1,0 +1,43 @@
+import React, {useEffect} from 'react';
+import {Image, TouchableOpacity} from 'react-native';
+import {router} from 'expo-router';
+import {StatusBar} from 'expo-status-bar';
+import {appImages} from '@/constants/assets';
+import {colors} from '@/constants/colors';
+import {useColorScheme} from '@/hooks/useColorScheme';
+import {heightPixel, widthPixel} from '@/services/responsive';
+
+const Splash = ({fontLoading}: {fontLoading: boolean}) => {
+  useEffect(() => {
+    {
+      !fontLoading &&
+        setTimeout(() => {
+          router.replace('/auth/SignIn');
+        }, 3000);
+    }
+  }, [fontLoading]);
+
+  const colorScheme = useColorScheme();
+  const isDarkMode = colorScheme === 'dark';
+
+  return (
+    <>
+      <StatusBar style={isDarkMode ? 'light' : 'dark'} />
+      <TouchableOpacity
+        style={{
+          flex: 1,
+          backgroundColor: isDarkMode ? colors.dark.bg : colors.light.bg,
+          justifyContent: 'center',
+          alignItems: 'center',
+        }}>
+        <Image
+          source={isDarkMode ? appImages.BudgetLogo : appImages.BudgetLogolight}
+          style={{width: widthPixel(344), height: heightPixel(320)}}
+          resizeMode="contain"
+        />
+      </TouchableOpacity>
+    </>
+  );
+};
+
+export default Splash;
