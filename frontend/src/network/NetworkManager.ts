@@ -1,10 +1,9 @@
 import axios, {AxiosError, AxiosResponse} from 'axios';
 import {router} from 'expo-router';
-import {getDeviceId} from 'react-native-device-info';
 import {isNetworkAvailable} from '@/services/helpingMethods';
 import SNACKBARS from '@/services/snackbar';
 import {useAuthStore} from '@/store';
-import {api, BASE_URL} from './Environment';
+import {BASE_URL} from './Environment';
 
 export const Method = {
   GET: 'GET',

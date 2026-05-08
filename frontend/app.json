@@ -4,7 +4,7 @@
     "slug": "BudgetApp",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./frontend/src/assets/images/BudgetLogo.png",
+    "icon": "./src/assets/images/BudgetLogo.png",
     "scheme": "budgetapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -20,7 +20,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./frontend/src/assets/images/BudgetLogo.png",
+        "foregroundImage": "./src/assets/images/BudgetLogo.png",
         "backgroundColor": "#101A31"
       },
       "edgeToEdgeEnabled": true,
@@ -31,13 +31,13 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./frontend/src/assets/images/BudgetLogo.png"
+      "favicon": "./src/assets/images/BudgetLogo.png"
     },
     "plugins": [
       [
         "expo-router",
         {
-          "root": "./frontend/src/screens"
+          "root": "./src/screens"
         }
       ],
       [

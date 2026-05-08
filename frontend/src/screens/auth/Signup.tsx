@@ -1,9 +1,10 @@
 import React, {useState} from 'react';
-import {Image, TouchableOpacity, View} from 'react-native';
+import {Alert, Image, TouchableOpacity, View} from 'react-native';
 import {router} from 'expo-router';
 import {Formik} from 'formik';
 import {Button, Spacer, Text, TextInput, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
+import {authApi} from '@/network/api';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {heightPixel, widthPixel} from '@/services/responsive';
 import {signUpValidationSchema} from '@/services/validators';
@@ -13,15 +14,34 @@ const Signup = () => {
   const isDarkMode = color.bg === '#121212';
   const [ShowPassword, setShowPassword] = useState(false);
   const [ShowRetypePassword, setShowRetypePassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSignUp = (values: {
+  const handleSignUp = async (values: {
     email: string;
     password: string;
     retypePassword: string;
   }) => {
-    console.log('Sign Up with:', values);
-    // TODO: Implement sign up logic
-    router.replace('/auth/OtpVerification?from=SignUp');
+    setLoading(true);
+    try {
+      const response = await authApi.signup({
+        email: values.email,
+        password: values.password,
+        currency: 'USD',
+      });
+      if (response.success) {
+        router.replace(
+          `/auth/OtpVerification?from=SignUp&email=${encodeURIComponent(
+            values.email,
+          )}`,
+        );
+        return;
+      }
+      Alert.alert('Signup failed', response.message || 'Unable to sign up.');
+    } catch (error: any) {
+      Alert.alert('Signup failed', error?.message || 'Unable to sign up.');
+    } finally {
+      setLoading(false);
+    }
   };
   return (
     <Formik
@@ -148,7 +168,7 @@ const Signup = () => {
             </Text>
           </TouchableOpacity>
           <Spacer height={20} />
-          <Button title="Sign up & Verify Email" onPress={handleSubmit} />
+          <Button title="Sign up & Verify Email" onPress={handleSubmit} isLoading={loading} />
           <Spacer height={30} />
           <View
             style={{

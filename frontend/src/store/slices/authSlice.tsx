@@ -8,6 +8,9 @@ interface AuthState {
   token?: string;
   userData?: any;
   refreshToken?: string;
+  firstLogin?: boolean;
+  userGroups?: string[];
+  activeAlert?: string | null;
   setToken: (token: string) => void;
   setRefreshToken: (refreshToken: string) => void;
   setUserData: (user: any) => void;

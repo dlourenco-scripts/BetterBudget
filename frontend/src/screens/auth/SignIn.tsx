@@ -1,10 +1,12 @@
 import React, {useState} from 'react';
-import {Image, StyleSheet, TouchableOpacity, View} from 'react-native';
+import {Alert, Image, StyleSheet, TouchableOpacity, View} from 'react-native';
 import {router} from 'expo-router';
 import {StatusBar} from 'expo-status-bar';
 import {Formik} from 'formik';
 import {Button, Spacer, Text, TextInput, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
+import {useAuthStore} from '@/store';
+import {authApi} from '@/network/api';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {signInValidationSchema} from '@/services/validators';
@@ -13,9 +15,29 @@ const SignIn = () => {
   const color = useThemeColor();
   const styles = createStyles(color);
   const [ShowPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSignIn = (values: {email: string; password: string}) => {
-    router.replace('/(tabs)/HomeScreen');
+  const setToken = useAuthStore(state => state.setToken);
+  const setRefreshToken = useAuthStore(state => state.setRefreshToken);
+  const setUserData = useAuthStore(state => state.setUserData);
+
+  const handleSignIn = async (values: {email: string; password: string}) => {
+    setLoading(true);
+    try {
+      const response = await authApi.login(values);
+      if (response.success && response.data) {
+        setToken(response.data.token);
+        setRefreshToken(response.data.refreshToken ?? '');
+        setUserData(response.data.user);
+        router.replace('/(tabs)/HomeScreen');
+        return;
+      }
+      Alert.alert('Login failed', response.message || 'Unable to sign in.');
+    } catch (error: any) {
+      Alert.alert('Login failed', error?.message || 'Unable to sign in.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -102,7 +124,7 @@ const SignIn = () => {
               </Text>
             </TouchableOpacity>
             <Spacer height={26} />
-            <Button title="Log In" onPress={handleSubmit} />
+            <Button title="Log In" onPress={handleSubmit} isLoading={loading} />
           </>
         )}
       </Formik>

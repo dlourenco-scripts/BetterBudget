@@ -15,7 +15,7 @@ config.resolver = {
 };
 config.resolver.alias = {
   ...config.resolver.alias,
-  app: path.resolve(__dirname, 'frontend/src/screens'),
+  app: path.resolve(__dirname, 'src/screens'),
 };
 
 module.exports = config;

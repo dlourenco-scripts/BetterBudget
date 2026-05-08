@@ -1,23 +1,47 @@
 import React, {useState} from 'react';
-import {router} from 'expo-router';
+import {Alert} from 'react-native';
+import {router, useLocalSearchParams} from 'expo-router';
 import {Formik} from 'formik';
 import {Button, Header, Spacer, TextInput, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
+import {authApi} from '@/network/api';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {heightPixel} from '@/services/responsive';
 import {newPasswordValidationSchema} from '@/services/validators';
 
 const NewPassword = () => {
   const color = useThemeColor();
+  const {email, code} = useLocalSearchParams();
   const [ShowPassword, setShowPassword] = useState(false);
   const [ShowRetypePassword, setShowRetypePassword] = useState(false);
-  const handleChangePassword = (values: {
+  const [loading, setLoading] = useState(false);
+
+  const handleChangePassword = async (values: {
     newPassword: string;
     confirmNewPassword: string;
   }) => {
-    console.log('Change Password with:', values);
-    // TODO: Implement password change logic
-    router.navigate('/auth/SuccessScreen');
+    if (!email || !code) {
+      Alert.alert('Missing data', 'Unable to reset password because email or code is missing.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await authApi.resetPassword({
+        email: String(email),
+        code: String(code),
+        password: values.newPassword,
+      });
+      if (response.success) {
+        router.navigate('/auth/SuccessScreen');
+        return;
+      }
+      Alert.alert('Reset failed', response.message || 'Unable to reset password.');
+    } catch (error: any) {
+      Alert.alert('Reset failed', error?.message || 'Unable to reset password.');
+    } finally {
+      setLoading(false);
+    }
   };
   return (
     <Wrapper>
@@ -64,7 +88,7 @@ const NewPassword = () => {
               touched={touched.confirmNewPassword}
             />
             <Spacer height={70} />
-            <Button title="Change Password" onPress={handleSubmit} />
+            <Button title="Change Password" onPress={handleSubmit} isLoading={loading} />
           </>
         )}
       </Formik>
