@@ -12,23 +12,28 @@ import {
 } from '@/components';
 import {appImages} from '@/constants/assets';
 import {authApi} from '@/network/api';
+import {useAuthStore} from '@/store';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {heightPixel, widthPixel} from '@/services/responsive';
 
 const OtpVerification = () => {
   const color = useThemeColor();
   const {from, email} = useLocalSearchParams();
+  const emailAddress = Array.isArray(email) ? email[0] : email;
   const isFromSignUp = from === 'SignUp';
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const setToken = useAuthStore(state => state.setToken);
+  const setRefreshToken = useAuthStore(state => state.setRefreshToken);
+  const setUserData = useAuthStore(state => state.setUserData);
 
   const handleSubmit = async () => {
-    if (!email) {
+    if (!emailAddress) {
       Alert.alert('Missing email', 'Please go back and enter your email first.');
       return;
     }
 
-    if (otp.length < 6) {
+    if (otp.length !== 6) {
       Alert.alert('Invalid code', 'Please enter the full 6-digit verification code.');
       return;
     }
@@ -36,8 +41,13 @@ const OtpVerification = () => {
     if (isFromSignUp) {
       setLoading(true);
       try {
-        const response = await authApi.verifyEmail({email, code: otp});
+        const response = await authApi.verifyEmail({email: emailAddress, code: otp});
         if (response.success) {
+          if (response.data?.token) {
+            setToken(response.data.token);
+            setRefreshToken(response.data.refreshToken ?? '');
+            setUserData(response.data.user);
+          }
           router.replace('/auth/SelectCurrency');
           return;
         }
@@ -50,7 +60,7 @@ const OtpVerification = () => {
     } else {
       router.navigate({
         pathname: '/auth/NewPassword',
-        params: {email, code: otp},
+        params: {email: emailAddress, code: otp},
       });
     }
   };
@@ -65,7 +75,7 @@ const OtpVerification = () => {
         style={{
           textAlign: 'center',
         }}>
-        {`A verification code has been sent to ${email || 'your email address'}.`}
+        {`A verification code has been sent to ${emailAddress || 'your email address'}.`}
       </Text>
       <Spacer height={40} />
       <Text

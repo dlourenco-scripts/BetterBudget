@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {
+  Alert,
   FlatList,
   Image,
   Modal,
@@ -29,6 +30,7 @@ import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {recurringExpensesValidationSchema} from '@/services/validators';
+import {budgetApi} from '@/network/api';
 
 const essentialCategories = [
   {icon: appImages.Housing, label: 'Housing'},
@@ -68,18 +70,21 @@ const expenseCategories = [
 ];
 
 const RecurringExpenses = () => {
-  const {fromHome, fromSimulated, isEdit, fromExpenses} = useLocalSearchParams<{
+  const {fromHome, fromSimulated, isEdit, fromExpenses, budgetId} = useLocalSearchParams<{
     fromHome?: string;
     fromSimulated?: string;
     isEdit?: string;
     fromExpenses?: string;
     fromBudgetCreation?: string;
+    budgetId?: string;
   }>();
   const [selectedDate, setSelectedDate] = useState('');
   const [showPicker, setShowPicker] = useState(false);
   const [activeTab, setActiveTab] = useState('fixed');
   const [showPaymentSourceSheet, setShowPaymentSourceSheet] = useState(false);
-  const [selectedPaymentSource, setSelectedPaymentSource] = useState('Salary');
+  const [selectedPaymentSource, setSelectedPaymentSource] = useState('');
+  const [paymentSources, setPaymentSources] = useState<string[]>([]);
+  const [newPaymentSource, setNewPaymentSource] = useState('');
   const [showFrequencySheet, setShowFrequencySheet] = useState(false);
   const [selectedFrequency, setSelectedFrequency] = useState('Every Pay Cycle');
   const [showExpenseSheet, setShowExpenseSheet] = useState(false);
@@ -97,6 +102,7 @@ const RecurringExpenses = () => {
   const [showNextPayDateInfo, setShowNextPayDateInfo] = useState(false);
   const [shownewPaymentSourceSheet, setShownewPaymentSourceSheet] =
     useState(false);
+  const [saving, setSaving] = useState(false);
 
   const color = useThemeColor();
   const colorScheme = useColorScheme();
@@ -111,7 +117,7 @@ const RecurringExpenses = () => {
     setExpenseAmount('');
     setSelectedExpense('');
     setActiveTab('fixed');
-    setSelectedPaymentSource('Salary');
+    setSelectedPaymentSource('');
     setSelectedFrequency('Every Pay Cycle');
     setSelectedDate('');
     if (resetForm) {
@@ -119,30 +125,53 @@ const RecurringExpenses = () => {
     }
   };
 
-  const handleFormSubmit = (values: {
+  const handleFormSubmit = async (values: {
     expenseName: string;
     selectedExpense: string;
     expenseAmount: string;
     selectedDate: string;
   }) => {
-    if (isEditMode) {
-      setIsEditMode(false);
-      setShowIncomeSheet(true);
-    } else if (fromExpenses === 'true') {
-      router.navigate('/(tabs)/ExpensesScreen');
-    } else if (fromHome === 'true') {
-      router.back();
-    } else if (fromSimulated === 'true') {
-      router.back();
-    } else {
-      setShowIncomeSheet(true);
+    if (!budgetId) {
+      Alert.alert('No budget selected', 'Create or select a budget before adding expenses.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await budgetApi.createExpense(budgetId, {
+        name: values.expenseName,
+        amount: Number(values.expenseAmount),
+        type: activeTab === 'fixed' ? 'Fixed' : 'Variable',
+        frequency: selectedFrequency,
+        dueDate: values.selectedDate,
+        category: values.selectedExpense,
+        priority: 1,
+        notes: selectedPaymentSource,
+      });
+
+      if (!response.success) {
+        Alert.alert('Unable to save expense', response.message || 'Please try again.');
+        return;
+      }
+
+      if (fromExpenses === 'true') {
+        router.navigate('/(tabs)/ExpensesScreen');
+      } else if (fromHome === 'true' || fromSimulated === 'true') {
+        router.back();
+      } else {
+        setShowIncomeSheet(true);
+      }
+    } catch (error: any) {
+      Alert.alert('Unable to save expense', error?.message || 'Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const PaymentSourceOptions = [
-    {label: 'Credit/Debit Card', value: 'Credit/Debit Card'},
-    {label: 'Paypal', value: 'Paypal'},
-  ];
+  const PaymentSourceOptions = paymentSources.map(source => ({
+    label: source,
+    value: source,
+  }));
 
   const frequencyOptions = [
     {label: 'Every Pay Cycle', value: 'Every Pay Cycle'},
@@ -252,9 +281,10 @@ const RecurringExpenses = () => {
               onInfoIconPress={() =>
                 setShowPaymentMethodInfo(!showPaymentMethodInfo)
               }
-              placeholder={selectedPaymentSource}
+              placeholder={selectedPaymentSource || 'Select Payment Method'}
               titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
               editable={false}
+              value={selectedPaymentSource}
               inputContainerStyle={{
                 backgroundColor: color.inputField,
               }}
@@ -357,6 +387,7 @@ const RecurringExpenses = () => {
               onInfoIconPress={() => setShowFrequencyInfo(!showFrequencyInfo)}
               placeholder={selectedFrequency}
               titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
+              value={selectedFrequency}
               inputContainerStyle={{
                 backgroundColor: color.inputField,
               }}
@@ -408,6 +439,7 @@ const RecurringExpenses = () => {
                 isEditMode ? 'Update' : isEdit === 'true' ? 'Update' : 'Add'
               }
               onPress={handleSubmit}
+              isLoading={saving}
             />
           </>
         )}
@@ -424,6 +456,17 @@ const RecurringExpenses = () => {
           onSelect={setSelectedPaymentSource}
           onClose={() => setShowPaymentSourceSheet(false)}
         />
+        {paymentSources.length === 0 && (
+          <>
+            <Spacer height={heightPixel(10)} />
+            <Text
+              size={14}
+              color={color.tabicon}
+              style={{textAlign: 'center', marginBottom: heightPixel(10)}}>
+              No payment methods yet.
+            </Text>
+          </>
+        )}
         <TouchableOpacity
           style={{
             borderWidth: 1,
@@ -694,123 +737,13 @@ const RecurringExpenses = () => {
         backgroundColor={color.inputField}>
         <Spacer height={heightPixel(40)} />
         <View style={{gap: widthPixel(20)}}>
-          <View
-            style={{
-              backgroundColor: color.container,
-              borderRadius: heightPixel(12),
-              paddingHorizontal: widthPixel(20),
-              paddingVertical: heightPixel(20),
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-            <View style={{flex: 1}}>
-              <Text variant="regular" size={14} color={color.tabicon}>
-                Salary
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                Monthly
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                $3000
-              </Text>
-            </View>
-            <View style={{flexDirection: 'row', gap: widthPixel(15)}}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowIncomeSheet(false);
-                  setIsEditMode(true);
-                }}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(7),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Feather name="edit" size={15} color={color.black} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(5),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Image
-                  source={appImages.Deleteimg}
-                  style={{
-                    width: widthPixel(20),
-                    height: heightPixel(20),
-                    resizeMode: 'contain',
-                    tintColor: color.black,
-                  }}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-          {/* Additional Income Item */}
-          <View
-            style={{
-              backgroundColor: color.container,
-              borderRadius: heightPixel(12),
-              paddingHorizontal: widthPixel(20),
-              paddingVertical: heightPixel(20),
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-            <View style={{flex: 1}}>
-              <Text variant="regular" size={14} color={color.tabicon}>
-                Additional{'\n'}Income
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                Monthly
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                $5000
-              </Text>
-            </View>
-            <View style={{flexDirection: 'row', gap: widthPixel(15)}}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowIncomeSheet(false);
-                  setIsEditMode(true);
-                }}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(7),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Feather name="edit" size={15} color={color.black} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(5),
-                  borderRadius: 50,
-                }}>
-                <Image
-                  source={appImages.Deleteimg}
-                  style={{
-                    width: widthPixel(20),
-                    height: heightPixel(20),
-                    resizeMode: 'contain',
-                    tintColor: color.black,
-                  }}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <Text
+            variant="medium"
+            size={17}
+            color={color.black}
+            style={{textAlign: 'center'}}>
+            Expense saved.
+          </Text>
         </View>
         <Spacer height={heightPixel(15)} />
         <TouchableOpacity
@@ -839,7 +772,10 @@ const RecurringExpenses = () => {
           }}
           onPress={() => {
             setShowIncomeSheet(false);
-            router.navigate('/auth/Debt');
+            router.navigate({
+              pathname: '/auth/Debt',
+              params: {budgetId},
+            });
             // Navigate to add income screen or open add form
           }}
         />
@@ -986,6 +922,8 @@ const RecurringExpenses = () => {
           title="Payment Source"
           placeholder="Enter Name"
           placeholderTextColor={color.tabicon}
+          value={newPaymentSource}
+          onChangeText={setNewPaymentSource}
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
           }
@@ -999,7 +937,19 @@ const RecurringExpenses = () => {
         <Spacer height={20} />
         <Button
           title="Add Payment Source"
-          onPress={() => setShownewPaymentSourceSheet(false)}
+          onPress={() => {
+            const trimmedSource = newPaymentSource.trim();
+            if (trimmedSource) {
+              setPaymentSources(previous =>
+                previous.includes(trimmedSource)
+                  ? previous
+                  : [...previous, trimmedSource],
+              );
+              setSelectedPaymentSource(trimmedSource);
+              setNewPaymentSource('');
+            }
+            setShownewPaymentSourceSheet(false);
+          }}
           variant="primary"
         />
         <Spacer height={30} />

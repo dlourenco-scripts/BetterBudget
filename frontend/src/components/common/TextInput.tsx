@@ -1,5 +1,5 @@
 //@ts-ignore
-import React, {JSX, useMemo} from 'react';
+import React, {JSX, useMemo, useState} from 'react';
 import {
   Image,
   Platform,
@@ -68,12 +68,16 @@ const TextInput = ({
   errorStyle,
   errorContainerStyle,
   multiline,
+  onFocus,
+  onBlur,
+  placeholder,
   ...rest
 }: InputFieldProps) => {
   const colors = useThemeColor();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const showError = touched && error;
   const {getCurrencyIcon} = useCurrency();
+  const [isFocused, setIsFocused] = useState(false);
 
   // --------------------
   // TITLE + INFO ICON UI
@@ -152,6 +156,15 @@ const TextInput = ({
         <RNTextInput
           {...rest}
           multiline={multiline}
+          onFocus={event => {
+            setIsFocused(true);
+            onFocus?.(event);
+          }}
+          onBlur={event => {
+            setIsFocused(false);
+            onBlur?.(event);
+          }}
+          placeholder={isFocused ? '' : placeholder}
           placeholderTextColor={colors.placeholdertext}
           pointerEvents={onPress ? 'none' : 'auto'}
           style={[

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {
   Image,
   Modal,
@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import {useFocusEffect} from 'expo-router';
 import {
   BottomSheet,
   Button,
@@ -21,6 +22,7 @@ import {
 import {appImages} from '@/constants/assets';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {userApi} from '@/network/api';
 import {
   fontPixel,
   heightPixel,
@@ -28,6 +30,7 @@ import {
   widthPixel,
   wp,
 } from '@/services/responsive';
+import {useAuthStore} from '@/store';
 
 const Profile = () => {
   const color = useThemeColor();
@@ -36,12 +39,46 @@ const Profile = () => {
   const [selectedGoal, setSelectedGoal] = useState<'savings' | 'debt'>(
     'savings',
   );
+  const [fullName, setFullName] = useState('');
+  const [email, setEmail] = useState('');
+  const [savingsGoal, setSavingsGoal] = useState('');
+  const [draftSavingsGoal, setDraftSavingsGoal] = useState('');
   const [showEditSavingsModal, setShowEditSavingsModal] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedTime, setSelectedTime] = useState<Date | null>(null);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const customInputBg = isDarkMode ? '#0F1115' : undefined;
+  const updateUserData = useAuthStore(state => state.updateUserData);
+
+  const applyUser = useCallback((user: any) => {
+    setFullName(user?.fullName || '');
+    setEmail(user?.email || '');
+    setSelectedGoal(user?.goalType === 'debt' ? 'debt' : 'savings');
+    setSavingsGoal(String(Number(user?.savingsGoal || 0)));
+    setDraftSavingsGoal(String(Number(user?.savingsGoal || 0)));
+    setIsFullAccess(Boolean(user?.paydayReminderEnabled));
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      applyUser(useAuthStore.getState().userData);
+      userApi.me().then(response => {
+        if (response.success && response.data) {
+          updateUserData(response.data);
+          applyUser(response.data);
+        }
+      });
+    }, [applyUser, updateUserData]),
+  );
+
+  const updateProfile = async (values: any) => {
+    const response = await userApi.update(values);
+    if (response.success && response.data) {
+      updateUserData(response.data);
+      applyUser(response.data);
+    }
+  };
 
   const formatTime = (date: Date) => {
     return date.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
@@ -58,6 +95,7 @@ const Profile = () => {
 
   const handleFullAccessToggle = (value: boolean) => {
     setIsFullAccess(value);
+    updateProfile({paydayReminderEnabled: value});
   };
 
   return (
@@ -97,7 +135,7 @@ const Profile = () => {
           style={{
             textAlign: 'center',
           }}>
-          Kate Norman
+          {fullName || email || 'Profile'}
         </Text>
         <Spacer height={heightPixel(16)} />
         <View
@@ -143,7 +181,10 @@ const Profile = () => {
           fontFamily: 'regular',
         }}
         placeholderTextColor={color.shareBudgetText}
-        placeholder="John"
+        placeholder="Enter your full name"
+        value={fullName}
+        onChangeText={setFullName}
+        onBlur={() => updateProfile({fullName})}
         inputContainerStyle={{
           backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
           borderRadius: 50,
@@ -159,7 +200,9 @@ const Profile = () => {
           fontFamily: 'regular',
         }}
         placeholderTextColor={color.shareBudgetText}
-        placeholder="john@example.com"
+        placeholder="Email"
+        value={email}
+        editable={false}
         inputContainerStyle={{
           backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
           borderRadius: 50,
@@ -212,7 +255,10 @@ const Profile = () => {
           }}>
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() => setSelectedGoal('savings')}
+            onPress={() => {
+              setSelectedGoal('savings');
+              updateProfile({goalType: 'save'});
+            }}
             style={{
               backgroundColor:
                 selectedGoal === 'savings'
@@ -241,7 +287,10 @@ const Profile = () => {
           </TouchableOpacity>
           <TouchableOpacity
             activeOpacity={0.85}
-            onPress={() => setSelectedGoal('debt')}
+            onPress={() => {
+              setSelectedGoal('debt');
+              updateProfile({goalType: 'debt'});
+            }}
             style={{
               backgroundColor:
                 selectedGoal === 'debt'
@@ -283,6 +332,7 @@ const Profile = () => {
             }}
             placeholderTextColor={color.black}
             placeholder="0"
+            value={savingsGoal}
             editable={false}
             keyboardType="numeric"
             useCurrencyIcon={true}
@@ -452,6 +502,8 @@ const Profile = () => {
           title="Amount"
           placeholder="0"
           placeholderTextColor={color.tabicon}
+          value={draftSavingsGoal}
+          onChangeText={setDraftSavingsGoal}
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
           }
@@ -462,6 +514,7 @@ const Profile = () => {
         <Button
           title="Update"
           onPress={() => {
+            updateProfile({savingsGoal: Number(draftSavingsGoal || 0)});
             setShowEditSavingsModal(false);
           }}
         />

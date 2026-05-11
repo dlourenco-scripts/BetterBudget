@@ -1,8 +1,8 @@
 import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
+import jwt, {Secret, SignOptions} from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change_this_secret';
-const JWT_EXPIRES_IN = process.env.TOKEN_EXPIRES_IN || '7d';
+const JWT_SECRET: Secret = process.env.JWT_SECRET || 'change_this_secret';
+const JWT_EXPIRES_IN = (process.env.TOKEN_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
 
 export function hashPassword(password: string) {
   return bcrypt.hashSync(password, 8);

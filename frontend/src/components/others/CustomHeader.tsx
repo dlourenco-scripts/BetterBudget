@@ -35,6 +35,11 @@ interface CustomHeaderProps {
   budgets?: Budget[];
   primaryBudgetId?: string;
   onPrimaryBudgetChange?: (budgetId: string) => void;
+  currentSavings?: number;
+  savingsGoal?: number;
+  autoFillEnabled?: boolean;
+  onAutoFillChange?: (enabled: boolean) => void;
+  onSavingsUpdate?: (values: {currentSavings?: number; savingsGoal?: number}) => void;
 }
 
 const CustomHeader: React.FC<CustomHeaderProps> = ({
@@ -43,6 +48,11 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   budgets = [],
   primaryBudgetId,
   onPrimaryBudgetChange,
+  currentSavings = 0,
+  savingsGoal = 0,
+  autoFillEnabled = false,
+  onAutoFillChange,
+  onSavingsUpdate,
 }) => {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
@@ -58,15 +68,37 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   const [ShowBudgetSection, setShowBudgetSection] = useState(false);
   const [showBudgetList, setShowBudgetList] = useState(false);
   const [showIncomeInfo, setShowIncomeInfo] = useState(false);
-  const [isEnabled, setIsEnabled] = useState(false);
-  const toggleSwitch = () => setIsEnabled(previousState => !previousState);
+  const [isEnabled, setIsEnabled] = useState(autoFillEnabled);
+  const toggleSwitch = () => {
+    const nextValue = !isEnabled;
+    setIsEnabled(nextValue);
+    onAutoFillChange?.(nextValue);
+  };
   const [showEditSavingsSheet, setShowEditSavingsSheet] = useState(false);
-  const [currentSavingsAmount, setCurrentSavingsAmount] = useState('$1200');
+  const [currentSavingsAmount, setCurrentSavingsAmount] = useState('');
   const [sheetMode, setSheetMode] = useState<'edit' | 'goal'>('edit');
   const [showEditIncomeSheet, setShowEditIncomeSheet] = useState(false);
-  const [incomeAmount, setIncomeAmount] = useState('$1200');
+  const [incomeAmount, setIncomeAmount] = useState('');
   const [showApplyToAllInfo, setShowApplyToAllInfo] = useState(false);
   const [applyToAllIncome, setApplyToAllIncome] = useState(false);
+
+  useEffect(() => {
+    const activeBudget =
+      budgets.find(budget => budget.id === primaryBudgetId) || budgets[0];
+    if (activeBudget) {
+      setSelectedBudget(activeBudget.name);
+    }
+  }, [budgets, primaryBudgetId]);
+
+  useEffect(() => {
+    setIsEnabled(autoFillEnabled);
+  }, [autoFillEnabled]);
+
+  useEffect(() => {
+    setCurrentSavingsAmount(
+      String(sheetMode === 'goal' ? savingsGoal || '' : currentSavings || ''),
+    );
+  }, [currentSavings, savingsGoal, sheetMode, showEditSavingsSheet]);
 
   // Determine if the current selected budget is the primary budget
   const currentBudget = budgets.find(b => b.name === selectedBudget);
@@ -184,7 +216,6 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             />
           </TouchableOpacity>
         </View>
-        <Spacer width={widthPixel(35)} />
         <View style={styles.rightContainer}>
           <TouchableOpacity style={styles.badgeContainer} onPress={toggleFlame}>
             <View
@@ -361,6 +392,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                 onPress={() => {
                   setShowBudgetSection(false);
                   setSelectedBudget(budget.name);
+                  onPrimaryBudgetChange?.(budget.id);
                 }}>
                 <View
                   style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
@@ -528,6 +560,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
           title="Amount"
           placeholder="0"
           placeholderTextColor={color.tabicon}
+          value={currentSavingsAmount}
           onChangeText={setCurrentSavingsAmount}
           keyboardType="numeric"
           useCurrencyIcon={true}
@@ -539,7 +572,12 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         <Button
           title="Update"
           onPress={() => {
-            // Handle update logic
+            const amount = Number(currentSavingsAmount || 0);
+            onSavingsUpdate?.(
+              sheetMode === 'goal'
+                ? {savingsGoal: amount}
+                : {currentSavings: amount},
+            );
             setShowEditSavingsSheet(false);
           }}
         />
@@ -586,6 +624,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
           title="Amount"
           placeholder="0"
           placeholderTextColor={color.tabicon}
+          value={incomeAmount}
           onChangeText={setIncomeAmount}
           keyboardType="numeric"
           useCurrencyIcon={true}
@@ -631,11 +670,14 @@ const styles = StyleSheet.create({
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
   },
   rightContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: widthPixel(17),
+    marginLeft: 'auto',
   },
   flameWrapper: {
     position: 'relative',

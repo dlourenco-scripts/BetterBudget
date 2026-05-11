@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {Image, Platform, TouchableOpacity, View} from 'react-native';
+import {Alert, Image, Platform, TouchableOpacity, View} from 'react-native';
 import {router, useLocalSearchParams} from 'expo-router';
 import {Formik} from 'formik';
 import {Feather} from '@expo/vector-icons';
@@ -18,13 +18,18 @@ import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {debtValidationSchema} from '@/services/validators';
+import {budgetApi} from '@/network/api';
 
 const Debt = () => {
-  const {fromHome} = useLocalSearchParams<{fromHome?: string}>();
+  const {fromHome, budgetId} = useLocalSearchParams<{
+    fromHome?: string;
+    budgetId?: string;
+  }>();
   const [ShowIncomeSheet, setShowIncomeSheet] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [debtName, setDebtName] = useState('');
   const [debtAmount, setDebtAmount] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const color = useThemeColor();
   const colorScheme = useColorScheme();
@@ -40,13 +45,39 @@ const Debt = () => {
     }
   };
 
-  const handleFormSubmit = (values: {debtName: string; debtAmount: string}) => {
-    if (fromHome === 'true') {
-      router.back();
-    } else if (isEditMode) {
-      setIsEditMode(false);
-    } else {
-      setShowIncomeSheet(true);
+  const handleFormSubmit = async (values: {debtName: string; debtAmount: string}) => {
+    if (!budgetId) {
+      Alert.alert('No budget selected', 'Create or select a budget before adding debt.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await budgetApi.createDebt(budgetId, {
+        name: values.debtName,
+        balance: Number(values.debtAmount),
+        minimumPayment: 0,
+        interestRate: 0,
+        priority: 1,
+        status: 'active',
+      });
+
+      if (!response.success) {
+        Alert.alert('Unable to save debt', response.message || 'Please try again.');
+        return;
+      }
+
+      if (fromHome === 'true') {
+        router.back();
+      } else if (isEditMode) {
+        setIsEditMode(false);
+      } else {
+        setShowIncomeSheet(true);
+      }
+    } catch (error: any) {
+      Alert.alert('Unable to save debt', error?.message || 'Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
   return (
@@ -134,6 +165,7 @@ const Debt = () => {
             <Button
               title={isEditMode ? 'Update' : 'Add'}
               onPress={handleSubmit}
+              isLoading={saving}
               containerStyle={{
                 backgroundColor: color.primary,
               }}
@@ -150,123 +182,13 @@ const Debt = () => {
         backgroundColor={color.inputField}>
         <Spacer height={40} />
         <View style={{gap: widthPixel(20)}}>
-          <View
-            style={{
-              backgroundColor: color.container,
-              borderRadius: heightPixel(12),
-              paddingHorizontal: widthPixel(20),
-              paddingVertical: heightPixel(20),
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-            <View style={{flex: 1}}>
-              <Text variant="regular" size={14} color={color.tabicon}>
-                Salary
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                Monthly
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                $3000
-              </Text>
-            </View>
-            <View style={{flexDirection: 'row', gap: widthPixel(15)}}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowIncomeSheet(false);
-                  setIsEditMode(true);
-                }}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(7),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Feather name="edit" size={15} color={color.black} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(5),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Image
-                  source={appImages.Deleteimg}
-                  style={{
-                    width: widthPixel(20),
-                    height: heightPixel(20),
-                    resizeMode: 'contain',
-                    tintColor: color.black,
-                  }}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-          {/* Additional Income Item */}
-          <View
-            style={{
-              backgroundColor: color.container,
-              borderRadius: heightPixel(12),
-              paddingHorizontal: widthPixel(20),
-              paddingVertical: heightPixel(20),
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-            <View style={{flex: 1}}>
-              <Text variant="regular" size={14} color={color.tabicon}>
-                Additional{'\n'}Income
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                Monthly
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                $5000
-              </Text>
-            </View>
-            <View style={{flexDirection: 'row', gap: widthPixel(15)}}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowIncomeSheet(false);
-                  setIsEditMode(true);
-                }}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(7),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Feather name="edit" size={15} color={color.black} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(5),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Image
-                  source={appImages.Deleteimg}
-                  style={{
-                    width: widthPixel(20),
-                    height: heightPixel(20),
-                    resizeMode: 'contain',
-                    tintColor: color.black,
-                  }}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <Text
+            variant="medium"
+            size={17}
+            color={color.black}
+            style={{textAlign: 'center'}}>
+            Debt saved.
+          </Text>
         </View>
         <Spacer height={20} />
         <Button

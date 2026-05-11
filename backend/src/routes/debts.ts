@@ -6,22 +6,66 @@ import db from '../db';
 
 const router = Router({mergeParams: true});
 
-function getBudget(budgetId: string, userId: string) {
-  return db.prepare('SELECT id FROM budgets WHERE id = ? AND userId = ?').get(budgetId, userId);
+type DebtRow = {
+  id: string;
+  budget_id: string;
+  name: string;
+  balance: string;
+  minimum_payment: string;
+  interest_rate: string;
+  priority: number;
+  status: string;
+  created_at: Date;
+  updated_at: Date;
+};
+
+function toDebt(row: DebtRow) {
+  return {
+    id: row.id,
+    budgetId: row.budget_id,
+    name: row.name,
+    balance: Number(row.balance),
+    minimumPayment: Number(row.minimum_payment),
+    interestRate: Number(row.interest_rate),
+    priority: row.priority,
+    status: row.status,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
-function getDebt(debtId: string, budgetId: string) {
-  return db.prepare('SELECT * FROM debts WHERE id = ? AND budgetId = ?').get(debtId, budgetId);
+async function getBudget(budgetId: string, userId: string) {
+  const result = await db.query('SELECT id FROM budgets WHERE id = $1 AND user_id = $2', [
+    budgetId,
+    userId,
+  ]);
+  return result.rows[0] || null;
 }
 
-router.get('/', authMiddleware, (req: AuthRequest, res) => {
-  const budget = getBudget(req.params.budgetId, req.userId);
-  if (!budget) {
-    return res.status(404).json({success: false, message: 'Budget not found.'});
+async function getDebt(debtId: string, budgetId: string) {
+  const result = await db.query<DebtRow>(
+    'SELECT * FROM debts WHERE id = $1 AND budget_id = $2',
+    [debtId, budgetId],
+  );
+  return result.rows[0] ? toDebt(result.rows[0]) : null;
+}
+
+router.get('/', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const budget = await getBudget(req.params.budgetId!, req.userId!);
+    if (!budget) {
+      return res.status(404).json({success: false, message: 'Budget not found.'});
+    }
+
+    const debts = await db.query<DebtRow>(
+      'SELECT * FROM debts WHERE budget_id = $1 ORDER BY priority ASC, created_at ASC',
+      [budget.id],
+    );
+    return res.status(200).json({success: true, data: debts.rows.map(toDebt)});
+  } catch (error) {
+    console.error('List debts error:', error);
+    return res.status(500).json({success: false, message: 'Internal server error.'});
   }
-
-  const debts = db.prepare('SELECT * FROM debts WHERE budgetId = ?').all(budget.id);
-  return res.status(200).json({success: true, data: debts});
 });
 
 router.post(
@@ -33,27 +77,34 @@ router.post(
   body('interestRate').optional().isFloat({min: 0}),
   body('priority').optional().isInt({min: 1}),
   body('status').optional().isString(),
-  (req: AuthRequest, res) => {
+  async (req: AuthRequest, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({success: false, errors: errors.array()});
     }
 
-    const budget = getBudget(req.params.budgetId, req.userId);
-    if (!budget) {
-      return res.status(404).json({success: false, message: 'Budget not found.'});
+    try {
+      const budget = await getBudget(req.params.budgetId!, req.userId!);
+      if (!budget) {
+        return res.status(404).json({success: false, message: 'Budget not found.'});
+      }
+
+      const {name, balance, minimumPayment = 0, interestRate = 0, priority = 1, status = 'active'} = req.body;
+      const id = uuidv4();
+
+      const result = await db.query<DebtRow>(
+        `INSERT INTO debts
+          (id, budget_id, name, balance, minimum_payment, interest_rate, priority, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING *`,
+        [id, budget.id, name, balance, minimumPayment, interestRate, priority, status],
+      );
+
+      return res.status(201).json({success: true, data: toDebt(result.rows[0])});
+    } catch (error) {
+      console.error('Create debt error:', error);
+      return res.status(500).json({success: false, message: 'Internal server error.'});
     }
-
-    const {name, balance, minimumPayment = 0, interestRate = 0, priority = 1, status = 'active'} = req.body;
-    const id = uuidv4();
-    const timestamp = new Date().toISOString();
-
-    db.prepare(
-      'INSERT INTO debts (id, budgetId, name, balance, minimumPayment, interestRate, priority, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-    ).run(id, budget.id, name, balance, minimumPayment, interestRate, priority, status, timestamp, timestamp);
-
-    const debt = getDebt(id, budget.id);
-    return res.status(201).json({success: true, data: debt});
   },
 );
 
@@ -66,57 +117,74 @@ router.patch(
   body('interestRate').optional().isFloat({min: 0}),
   body('priority').optional().isInt({min: 1}),
   body('status').optional().isString(),
-  (req: AuthRequest, res) => {
+  async (req: AuthRequest, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({success: false, errors: errors.array()});
     }
 
-    const budget = getBudget(req.params.budgetId, req.userId);
+    const fieldMapping: Record<string, string> = {
+      name: 'name',
+      balance: 'balance',
+      minimumPayment: 'minimum_payment',
+      interestRate: 'interest_rate',
+      priority: 'priority',
+      status: 'status',
+    };
+
+    const updates = Object.entries(req.body).filter(([key]) => fieldMapping[key]);
+    if (updates.length === 0) {
+      return res.status(400).json({success: false, message: 'No valid fields provided.'});
+    }
+
+    try {
+      const budget = await getBudget(req.params.budgetId!, req.userId!);
+      if (!budget) {
+        return res.status(404).json({success: false, message: 'Budget not found.'});
+      }
+
+      const debt = await getDebt(req.params.debtId!, budget.id);
+      if (!debt) {
+        return res.status(404).json({success: false, message: 'Debt not found.'});
+      }
+
+      const values = updates.map(([, value]) => value);
+      const assignments = updates
+        .map(([key], index) => `${fieldMapping[key]} = $${index + 1}`)
+        .join(', ');
+      values.push(debt.id);
+
+      const result = await db.query<DebtRow>(
+        `UPDATE debts SET ${assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = $${values.length} RETURNING *`,
+        values,
+      );
+
+      return res.status(200).json({success: true, data: toDebt(result.rows[0])});
+    } catch (error) {
+      console.error('Update debt error:', error);
+      return res.status(500).json({success: false, message: 'Internal server error.'});
+    }
+  },
+);
+
+router.delete('/:debtId', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const budget = await getBudget(req.params.budgetId!, req.userId!);
     if (!budget) {
       return res.status(404).json({success: false, message: 'Budget not found.'});
     }
 
-    const debt = getDebt(req.params.debtId, budget.id);
+    const debt = await getDebt(req.params.debtId!, budget.id);
     if (!debt) {
       return res.status(404).json({success: false, message: 'Debt not found.'});
     }
 
-    const allowedFields = ['name', 'balance', 'minimumPayment', 'interestRate', 'priority', 'status'];
-    const updates = Object.entries(req.body).reduce((acc, [key, value]) => {
-      if (allowedFields.includes(key)) {
-        acc[key] = value;
-      }
-      return acc;
-    }, {} as Record<string, any>);
-
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({success: false, message: 'No valid fields provided.'});
-    }
-
-    const assignments = Object.keys(updates).map(key => `${key} = ?`).join(', ');
-    const values = [...Object.values(updates), new Date().toISOString(), debt.id];
-
-    db.prepare(`UPDATE debts SET ${assignments}, updatedAt = ? WHERE id = ?`).run(...values);
-
-    const updatedDebt = getDebt(debt.id, budget.id);
-    return res.status(200).json({success: true, data: updatedDebt});
-  },
-);
-
-router.delete('/:debtId', authMiddleware, (req: AuthRequest, res) => {
-  const budget = getBudget(req.params.budgetId, req.userId);
-  if (!budget) {
-    return res.status(404).json({success: false, message: 'Budget not found.'});
+    await db.query('DELETE FROM debts WHERE id = $1', [debt.id]);
+    return res.status(204).send();
+  } catch (error) {
+    console.error('Delete debt error:', error);
+    return res.status(500).json({success: false, message: 'Internal server error.'});
   }
-
-  const debt = getDebt(req.params.debtId, budget.id);
-  if (!debt) {
-    return res.status(404).json({success: false, message: 'Debt not found.'});
-  }
-
-  db.prepare('DELETE FROM debts WHERE id = ?').run(debt.id);
-  return res.status(204).send();
 });
 
 export default router;

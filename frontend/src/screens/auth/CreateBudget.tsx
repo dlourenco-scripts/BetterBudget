@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {Image, TouchableOpacity, View} from 'react-native';
+import {Alert, Image, TouchableOpacity, View} from 'react-native';
 import {router, useLocalSearchParams} from 'expo-router';
 import {Entypo} from '@expo/vector-icons';
 import {
@@ -20,6 +20,9 @@ import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 
 const CreateBudget = () => {
   const [showexpenseInfo, setShowexpenseInfo] = useState(false);
+  const [budgetName, setBudgetName] = useState('');
+  const [reserveAmount, setReserveAmount] = useState('');
+  const [currentSavings, setCurrentSavings] = useState('');
   const {fromHome, fromBudgetCreation, fromCopyExpenses} =
     useLocalSearchParams<{
       fromHome?: string;
@@ -27,6 +30,7 @@ const CreateBudget = () => {
       fromCopyExpenses?: string;
     }>();
   const showBackArrow = fromHome === 'true';
+  const isBudgetCreation = fromBudgetCreation !== 'false';
 
   const color = useThemeColor();
   return (
@@ -48,7 +52,9 @@ const CreateBudget = () => {
           color: color.tabicon,
           fontFamily: 'regular',
         }}
-        placeholder="Home budget"
+        placeholder="Budget Name"
+        value={budgetName}
+        onChangeText={setBudgetName}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -67,6 +73,8 @@ const CreateBudget = () => {
         keyboardType="numeric"
         useCurrencyIcon={true}
         placeholder="0"
+        value={reserveAmount}
+        onChangeText={setReserveAmount}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -82,6 +90,8 @@ const CreateBudget = () => {
         keyboardType="numeric"
         useCurrencyIcon={true}
         placeholder="0"
+        value={currentSavings}
+        onChangeText={setCurrentSavings}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -90,15 +100,22 @@ const CreateBudget = () => {
       <FullFlex />
       <Button
         title="Next"
-        onPress={() =>
+        onPress={() => {
+          if (!budgetName.trim()) {
+            Alert.alert('Budget name required', 'Please enter a budget name.');
+            return;
+          }
           router.push({
             pathname: '/auth/AddIncome',
             params: {
-              fromBudgetCreation: fromBudgetCreation,
+              fromBudgetCreation: isBudgetCreation ? 'true' : 'false',
               fromCopyExpenses: fromCopyExpenses,
+              budgetName: budgetName.trim(),
+              reserveAmount: reserveAmount || '0',
+              currentSavings: currentSavings || '0',
             },
-          })
-        }
+          });
+        }}
       />
 
       <InfoTooltip

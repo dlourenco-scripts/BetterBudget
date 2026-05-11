@@ -6,6 +6,22 @@ import {hashPassword, comparePassword, createToken} from '../utils/auth';
 
 const router = Router();
 
+function toAuthUser(user: any) {
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.full_name || '',
+    verified: user.verified,
+    currency: user.currency,
+    theme: user.theme,
+    language: user.language,
+    subscriptionPlan: user.subscription_plan,
+    onboardingComplete: user.onboarding_complete,
+    goalType: user.goal_type,
+    savingsGoal: Number(user.savings_goal || 0),
+  };
+}
+
 router.post(
   '/signup',
   body('email').isEmail(),
@@ -34,7 +50,9 @@ router.post(
         [id, email, passwordHash, false, currency, verificationCode]
       );
 
-      console.log(`Email verification code for ${email}: ${verificationCode}`);
+      if (process.env.NODE_ENV !== 'production') {
+        console.log(`DEV VERIFICATION CODE for ${email}: ${verificationCode}`);
+      }
 
       return res.status(201).json({
         success: true,
@@ -43,8 +61,11 @@ router.post(
           user: {
             id,
             email,
+            fullName: '',
             verified: false,
             currency,
+            goalType: 'save',
+            savingsGoal: 0,
           },
         },
       });
@@ -92,17 +113,7 @@ router.post(
         data: {
           token,
           refreshToken,
-          user: {
-            id: user.id,
-            email: user.email,
-            verified: user.verified,
-            currency: user.currency,
-            theme: user.theme,
-            language: user.language,
-            subscriptionPlan: user.subscription_plan,
-            onboardingComplete: user.onboarding_complete,
-            goalType: user.goal_type,
-          },
+          user: toAuthUser(user),
         },
       });
     } catch (error) {
@@ -145,7 +156,20 @@ router.post(
         [user.id]
       );
 
-      return res.status(200).json({success: true, message: 'Email verified successfully.'});
+      const verifiedUserResult = await db.query('SELECT * FROM users WHERE id = $1', [user.id]);
+      const verifiedUser = verifiedUserResult.rows[0];
+      const token = createToken(user.id);
+      const refreshToken = createToken(user.id);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Email verified successfully.',
+        data: {
+          token,
+          refreshToken,
+          user: toAuthUser(verifiedUser),
+        },
+      });
     } catch (error) {
       console.error('Verify email error:', error);
       return res.status(500).json({success: false, message: 'Internal server error.'});

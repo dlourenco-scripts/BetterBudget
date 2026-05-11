@@ -21,20 +21,7 @@ const SimulatedBudget = () => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const isDark = color.bg === '#171A21';
-  const [expenses] = useState<Expense[]>([
-    {
-      id: '1',
-      title: 'Rent',
-      value: '360.96',
-      subText: 'Dec-23',
-    },
-    {
-      id: '2',
-      title: 'Phone',
-      value: '360.96',
-      subText: 'Dec-23',
-    },
-  ]);
+  const [expenses] = useState<Expense[]>([]);
 
   const handleLongPress = (id: string) => {
     if (!isSelectionMode) {
@@ -202,7 +189,7 @@ const SimulatedBudget = () => {
       <Spacer height={heightPixel(30)} />
       <GradientExpandableCard
         title="Monthly Income"
-        value="10,000"
+        value="0.00"
         titleStyle={{
           fontSize: fontPixel(15),
           fontWeight: 'medium',
@@ -218,57 +205,63 @@ const SimulatedBudget = () => {
       </Text>
       <Spacer height={heightPixel(5)} />
 
-      {expenses.map(expense => (
-        <View
-          key={expense.id}
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 10,
-            marginVertical: 5,
-          }}>
-          {isSelectionMode && (
-            <TouchableOpacity
-              onPress={() => toggleSelection(expense.id)}
-              style={{
-                borderRadius: 50,
-                backgroundColor: color.inputField,
-                padding: 10,
-              }}>
-              <Image
-                source={
-                  selectedIds.has(expense.id)
-                    ? appImages.SelectBox
-                    : appImages.UnSelectBox
-                }
-                tintColor={color.primary}
+      {expenses.length > 0 ? (
+        expenses.map(expense => (
+          <View
+            key={expense.id}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              marginVertical: 5,
+            }}>
+            {isSelectionMode && (
+              <TouchableOpacity
+                onPress={() => toggleSelection(expense.id)}
                 style={{
-                  width: widthPixel(18),
-                  height: heightPixel(18),
-                  resizeMode: 'contain',
+                  borderRadius: 50,
+                  backgroundColor: color.inputField,
+                  padding: 10,
+                }}>
+                <Image
+                  source={
+                    selectedIds.has(expense.id)
+                      ? appImages.SelectBox
+                      : appImages.UnSelectBox
+                  }
+                  tintColor={color.primary}
+                  style={{
+                    width: widthPixel(18),
+                    height: heightPixel(18),
+                    resizeMode: 'contain',
+                  }}
+                />
+              </TouchableOpacity>
+            )}
+            <View style={{flex: 1}}>
+              <GradientExpandableCard
+                title={expense.title}
+                value={expense.value}
+                subText={expense.subText}
+                titleStyle={{
+                  fontSize: fontPixel(15),
+                  fontWeight: 'medium',
                 }}
+                valueStyle={{
+                  fontSize: fontPixel(15),
+                  fontWeight: 'medium',
+                }}
+                onLongPress={() => handleLongPress(expense.id)}
+                onPress={() => handleCardPress(expense.id)}
               />
-            </TouchableOpacity>
-          )}
-          <View style={{flex: 1}}>
-            <GradientExpandableCard
-              title={expense.title}
-              value={expense.value}
-              subText={expense.subText}
-              titleStyle={{
-                fontSize: fontPixel(15),
-                fontWeight: 'medium',
-              }}
-              valueStyle={{
-                fontSize: fontPixel(15),
-                fontWeight: 'medium',
-              }}
-              onLongPress={() => handleLongPress(expense.id)}
-              onPress={() => handleCardPress(expense.id)}
-            />
+            </View>
           </View>
-        </View>
-      ))}
+        ))
+      ) : (
+        <Text size={14} color={color.tabicon}>
+          No simulated expenses yet.
+        </Text>
+      )}
 
       <FullFlex />
       {!isSelectionMode && (

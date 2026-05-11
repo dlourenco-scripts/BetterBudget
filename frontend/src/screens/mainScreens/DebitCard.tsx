@@ -1,11 +1,13 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {FlatList, Image, TouchableOpacity, View} from 'react-native';
+import dayjs from 'dayjs';
+import {useFocusEffect} from 'expo-router';
 import {Button, FullFlex, Header, Spacer, Text, Wrapper} from '@/components';
 import GradientExpandableCard from '@/components/others/GradientExpandableButton';
-import WalkthroughTooltip from '@/components/others/WalkthroughTooltip';
 import {appImages} from '@/constants/assets';
 import {useCurrency} from '@/context/CurrencyProvider';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {budgetApi} from '@/network/api';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 
 interface ExpenseItem {
@@ -19,88 +21,50 @@ interface ExpenseItem {
   showCheckbox?: boolean;
 }
 
-const MOCK_DATA: ExpenseItem[] = [
-  {
-    id: '1',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-  },
-  {
-    id: '2',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-  },
-  {
-    id: '3',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'One-Time',
-    badgeColor: '#F5E6D3',
-    badgeTextColor: '#945628',
-  },
-  {
-    id: '4',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-  },
-  {
-    id: '5',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-  },
-  {
-    id: '6',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-  },
-  {
-    id: '7',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-  },
-  {
-    id: '8',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-    showCheckbox: true,
-  },
-  {
-    id: '9',
-    date: 'Dec-23',
-    title: 'Gas',
-    value: '360.96',
-    badge: 'Variable',
-    badgeColor: '#FFF3E0',
-    showCheckbox: true,
-  },
-];
-
 const DebitCard = () => {
   const color = useThemeColor();
   const {currencySymbol} = useCurrency();
   const [selectedItem, setSelectedItem] = useState<string | null>(null);
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
+  const [cycleTotal, setCycleTotal] = useState(0);
+
+  const loadExpenses = useCallback(async () => {
+    try {
+      const budgetsResponse = await budgetApi.list();
+      const firstBudget = budgetsResponse.data?.[0];
+      if (!firstBudget?.id) {
+        setExpenses([]);
+        setCycleTotal(0);
+        return;
+      }
+
+      const detailResponse = await budgetApi.get(firstBudget.id);
+      const currentCycle = detailResponse.data?.currentCycle;
+      const cycleExpenses = currentCycle?.expenses || [];
+      setCycleTotal(Number(currentCycle?.totalExpenses || 0));
+      setExpenses(
+        cycleExpenses.map((expense: any) => ({
+          id: expense.id,
+          date: dayjs(expense.dueDate).format('MMM-DD'),
+          title: expense.name,
+          value: Number(expense.amount || 0).toFixed(2),
+          badge: expense.type || expense.frequency || 'Expense',
+          badgeColor: '#FFF3E0',
+        })),
+      );
+    } catch (error) {
+      console.error('Unable to load pay source expenses:', error);
+      setExpenses([]);
+      setCycleTotal(0);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadExpenses();
+    }, [loadExpenses]),
+  );
+
   const toggleSelection = (id: string) => {
     setSelectedItem(prev => {
       if (prev === id) {
@@ -187,15 +151,20 @@ const DebitCard = () => {
         </Text>
         <Spacer height={heightPixel(10)} />
         <Text size={24} variant="medium" color={color.black}>
-          {currencySymbol}50,130.67
+          {currencySymbol}{cycleTotal.toFixed(2)}
         </Text>
       </View>
       <Spacer height={heightPixel(20)} />
       <FlatList
-        data={MOCK_DATA}
+        data={expenses}
         renderItem={renderItem}
         keyExtractor={item => item.id}
         showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <Text size={14} color={color.tabicon}>
+            No expenses in this pay cycle yet.
+          </Text>
+        }
         contentContainerStyle={{
           paddingBottom: heightPixel(20),
         }}

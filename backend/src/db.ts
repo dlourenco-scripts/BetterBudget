@@ -1,6 +1,4 @@
 import { Pool } from 'pg';
-import fs from 'fs';
-import path from 'path';
 
 // PostgreSQL connection configuration
 const pool = new Pool({
@@ -30,6 +28,7 @@ const initializeSchema = async () => {
         id TEXT PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
+        full_name TEXT NOT NULL DEFAULT '',
         verified BOOLEAN NOT NULL DEFAULT false,
         currency TEXT NOT NULL DEFAULT 'USD',
         theme TEXT NOT NULL DEFAULT 'light',
@@ -39,6 +38,7 @@ const initializeSchema = async () => {
         subscription_plan TEXT NOT NULL DEFAULT 'free',
         onboarding_complete BOOLEAN NOT NULL DEFAULT false,
         goal_type TEXT NOT NULL DEFAULT 'save',
+        savings_goal DECIMAL(10,2) NOT NULL DEFAULT 0,
         verification_code TEXT,
         reset_code TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -57,6 +57,8 @@ const initializeSchema = async () => {
         cycle_start TEXT NOT NULL,
         cycle_end TEXT NOT NULL,
         reserve_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+        current_savings DECIMAL(10,2) NOT NULL DEFAULT 0,
+        savings_goal DECIMAL(10,2) NOT NULL DEFAULT 0,
         goal_type TEXT NOT NULL DEFAULT 'save',
         auto_fill_enabled BOOLEAN NOT NULL DEFAULT false,
         status TEXT NOT NULL DEFAULT 'active',
@@ -77,6 +79,7 @@ const initializeSchema = async () => {
         received_date DATE NOT NULL,
         category TEXT NOT NULL,
         notes TEXT,
+        is_primary BOOLEAN NOT NULL DEFAULT false,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -90,6 +93,7 @@ const initializeSchema = async () => {
         name TEXT NOT NULL,
         amount DECIMAL(10,2) NOT NULL,
         type TEXT NOT NULL,
+        frequency TEXT NOT NULL DEFAULT 'Every Pay Cycle',
         due_date DATE NOT NULL,
         category TEXT NOT NULL,
         priority INTEGER NOT NULL DEFAULT 1,
@@ -110,6 +114,87 @@ const initializeSchema = async () => {
         interest_rate DECIMAL(5,2) NOT NULL DEFAULT 0,
         priority INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL DEFAULT 'active',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create generated pay-cycle records. Budgets act as templates; cycles
+    // represent actual pay periods generated from the template schedule.
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS budget_cycles (
+        id TEXT PRIMARY KEY,
+        budget_id TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+        cycle_index INTEGER NOT NULL,
+        cycle_start DATE NOT NULL,
+        cycle_end DATE NOT NULL,
+        status TEXT NOT NULL DEFAULT 'planned',
+        base_income DECIMAL(10,2) NOT NULL DEFAULT 0,
+        extra_income DECIMAL(10,2) NOT NULL DEFAULT 0,
+        total_income DECIMAL(10,2) NOT NULL DEFAULT 0,
+        total_expenses DECIMAL(10,2) NOT NULL DEFAULT 0,
+        reserve_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+        goal_type TEXT NOT NULL DEFAULT 'save',
+        goal_allocation DECIMAL(10,2) NOT NULL DEFAULT 0,
+        carry_over_in DECIMAL(10,2) NOT NULL DEFAULT 0,
+        carry_over_out DECIMAL(10,2) NOT NULL DEFAULT 0,
+        spendable_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+        remaining_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (budget_id, cycle_index)
+      )
+    `);
+
+    await client.query(`
+      ALTER TABLE expenses
+      ADD COLUMN IF NOT EXISTS frequency TEXT NOT NULL DEFAULT 'Every Pay Cycle'
+    `);
+
+    await client.query(`
+      ALTER TABLE budgets
+      ADD COLUMN IF NOT EXISTS current_savings DECIMAL(10,2) NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS full_name TEXT NOT NULL DEFAULT ''
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS savings_goal DECIMAL(10,2) NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE budgets
+      ADD COLUMN IF NOT EXISTS savings_goal DECIMAL(10,2) NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE incomes
+      ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT false
+    `);
+
+    await client.query(`
+      ALTER TABLE budget_cycles
+      ADD COLUMN IF NOT EXISTS carry_over_in DECIMAL(10,2) NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE budget_cycles
+      ADD COLUMN IF NOT EXISTS carry_over_out DECIMAL(10,2) NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS allocations (
+        id TEXT PRIMARY KEY,
+        budget_cycle_id TEXT NOT NULL REFERENCES budget_cycles(id) ON DELETE CASCADE,
+        target_type TEXT NOT NULL,
+        target_id TEXT,
+        amount DECIMAL(10,2) NOT NULL,
+        source TEXT NOT NULL DEFAULT 'manual',
+        notes TEXT,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )

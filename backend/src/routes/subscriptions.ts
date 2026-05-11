@@ -5,28 +5,37 @@ import db from '../db';
 
 const router = Router();
 
-router.get('/status', authMiddleware, (req: AuthRequest, res) => {
-  const user = db.prepare('SELECT subscriptionPlan FROM users WHERE id = ?').get(req.userId);
-  if (!user) {
-    return res.status(404).json({success: false, message: 'User not found.'});
-  }
+router.get('/status', authMiddleware, async (req: AuthRequest, res) => {
+  try {
+    const result = await db.query('SELECT subscription_plan FROM users WHERE id = $1', [req.userId]);
+    const user = result.rows[0];
+    if (!user) {
+      return res.status(404).json({success: false, message: 'User not found.'});
+    }
 
-  return res.status(200).json({
-    success: true,
-    data: {
-      plan: user.subscriptionPlan,
-      renewalDate: null,
-      billingCycle: null,
-      entitlements: user.subscriptionPlan === 'pro' ? ['premium_budget', 'forecast', 'sharing'] : ['standard_budget'],
-    },
-  });
+    return res.status(200).json({
+      success: true,
+      data: {
+        plan: user.subscription_plan,
+        renewalDate: null,
+        billingCycle: null,
+        entitlements:
+          user.subscription_plan === 'pro'
+            ? ['premium_budget', 'forecast', 'sharing']
+            : ['standard_budget'],
+      },
+    });
+  } catch (error) {
+    console.error('Subscription status error:', error);
+    return res.status(500).json({success: false, message: 'Internal server error.'});
+  }
 });
 
 router.post(
   '/subscribe',
   authMiddleware,
   body('plan').isString().notEmpty(),
-  (req: AuthRequest, res) => {
+  async (req: AuthRequest, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({success: false, errors: errors.array()});
@@ -38,7 +47,15 @@ router.post(
       return res.status(400).json({success: false, message: 'Invalid subscription plan.'});
     }
 
-    db.prepare('UPDATE users SET subscriptionPlan = ?, updatedAt = ? WHERE id = ?').run(plan, new Date().toISOString(), req.userId);
+    try {
+      await db.query(
+        'UPDATE users SET subscription_plan = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2',
+        [plan, req.userId],
+      );
+    } catch (error) {
+      console.error('Subscribe error:', error);
+      return res.status(500).json({success: false, message: 'Internal server error.'});
+    }
 
     return res.status(200).json({
       success: true,

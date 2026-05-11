@@ -35,7 +35,7 @@ const PaySource = () => {
       <Spacer height={heightPixel(20)} />
       <TextInput
         title="Select Pay Source"
-        placeholder={'Credit Card'}
+        placeholder="Select Pay Source"
         titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
         editable={false}
         inputContainerStyle={{

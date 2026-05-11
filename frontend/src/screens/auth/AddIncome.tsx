@@ -1,5 +1,6 @@
 import React, {useState} from 'react';
 import {
+  Alert,
   Image,
   Platform,
   TextInput as RNTextInput,
@@ -29,13 +30,36 @@ import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {addIncomeValidationSchema} from '@/services/validators';
+import {budgetApi} from '@/network/api';
+
+const getCycleEnd = (startDate: string, frequency: string) => {
+  const date = new Date(`${startDate}T00:00:00`);
+  const normalizedFrequency = frequency.toLowerCase();
+
+  if (normalizedFrequency.includes('weekly') && !normalizedFrequency.includes('bi')) {
+    date.setDate(date.getDate() + 6);
+  } else if (normalizedFrequency.includes('bi')) {
+    date.setDate(date.getDate() + 13);
+  } else if (normalizedFrequency.includes('semi')) {
+    date.setDate(date.getDate() + 14);
+  } else {
+    date.setMonth(date.getMonth() + 1);
+    date.setDate(date.getDate() - 1);
+  }
+
+  return date.toISOString().slice(0, 10);
+};
 
 const AddIncome = () => {
-  const {fromHome, fromBudgetCreation, fromCopyExpenses} =
+  const {fromHome, fromBudgetCreation, fromCopyExpenses, budgetId, budgetName, reserveAmount, currentSavings} =
     useLocalSearchParams<{
       fromHome?: string;
       fromBudgetCreation?: string;
       fromCopyExpenses?: string;
+      budgetId?: string;
+      budgetName?: string;
+      reserveAmount?: string;
+      currentSavings?: string;
     }>();
   const [selectedIncomeType, setSelectedIncomeType] =
     useState<string>('Fixed Income');
@@ -43,7 +67,6 @@ const AddIncome = () => {
   const [selectedDate, setSelectedDate] = useState('');
   const [showCalendarSheet, setShowCalendarSheet] = useState(false);
   const [showFrequencySheet, setShowFrequencySheet] = useState(false);
-  const [selectedIncomeSource, setSelectedIncomeSource] = useState('Business');
   const [incomeSourceText, setIncomeSourceText] = useState('');
   const [incomeAmount, setIncomeAmount] = useState('');
   const [ShowIncomeSheet, setShowIncomeSheet] = useState(false);
@@ -54,7 +77,8 @@ const AddIncome = () => {
   const [showFrequencyInfo, setShowFrequencyInfo] = useState(false);
   const [showNextPayDateInfo, setShowNextPayDateInfo] = useState(false);
   const [showAutoAddInfo, setShowAutoAddInfo] = useState(false);
-  const [isEnabled, setIsEnabled] = useState(false);
+  const [isEnabled, setIsEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
   const toggleSwitch = () => setIsEnabled(previousState => !previousState);
 
   const color = useThemeColor();
@@ -69,35 +93,79 @@ const AddIncome = () => {
     setSelectedIncomeType('Fixed Income');
     setSelectedFrequency('Monthly');
     setSelectedDate('');
-    setIsEnabled(false);
+    setIsEnabled(true);
     if (resetForm) {
       resetForm();
     }
   };
 
-  const handleFormSubmit = (values: {
+  const handleFormSubmit = async (values: {
     incomeSourceText: string;
     incomeAmount: string;
     selectedDate: string;
   }) => {
-    if (fromHome === 'true') {
-      router.back();
-    } else if (fromCopyExpenses === 'true') {
-      // Show income sheet modal for copy expenses flow (Save button will navigate to HomeScreen)
-      setShowIncomeSheet(true);
-    } else if (fromBudgetCreation === 'true') {
-      // Navigate to RecurringExpenses when coming from budget creation flow
-      router.push({
-        pathname: '/auth/RecurringExpenses',
-        params: {
-          fromBudgetCreation: 'true',
-        },
+    setSaving(true);
+    try {
+      let targetBudgetId = budgetId;
+
+      if (fromBudgetCreation === 'true') {
+        const response = await budgetApi.create({
+          name: budgetName || 'Home Budget',
+          netPay: Number(values.incomeAmount),
+          cycleType: selectedFrequency,
+          cycleStart: values.selectedDate,
+          cycleEnd: getCycleEnd(values.selectedDate, selectedFrequency),
+          reserveAmount: Number(reserveAmount || 0),
+          currentSavings: Number(currentSavings || 0),
+          goalType: 'save',
+          autoFillEnabled: isEnabled,
+        });
+
+        if (!response.success || !response.data?.id) {
+          Alert.alert('Unable to save budget', response.message || 'Please try again.');
+          return;
+        }
+
+        targetBudgetId = response.data.id;
+      }
+
+      if (!targetBudgetId) {
+        Alert.alert('No budget selected', 'Create or select a budget before adding income.');
+        return;
+      }
+
+      const incomeResponse = await budgetApi.createIncome(targetBudgetId, {
+        name: values.incomeSourceText,
+        amount: Number(values.incomeAmount),
+        type: selectedIncomeType,
+        frequency: selectedFrequency,
+        receivedDate: values.selectedDate,
+        category: values.incomeSourceText,
+        notes: '',
+        isPrimary: fromBudgetCreation === 'true',
       });
-    } else if (isEditMode) {
-      setIsEditMode(false);
-      setShowIncomeSheet(true);
-    } else {
-      setShowIncomeSheet(true);
+
+      if (!incomeResponse.success) {
+        Alert.alert('Unable to save income', incomeResponse.message || 'Please try again.');
+        return;
+      }
+
+      if (fromHome === 'true') {
+        router.back();
+      } else {
+        router.push({
+          pathname: '/auth/RecurringExpenses',
+          params: {
+            fromBudgetCreation: fromBudgetCreation || '',
+            fromCopyExpenses: fromCopyExpenses || '',
+            budgetId: targetBudgetId,
+          },
+        });
+      }
+    } catch (error: any) {
+      Alert.alert('Unable to save income', error?.message || 'Please try again.');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -106,11 +174,6 @@ const AddIncome = () => {
     {label: 'Bi-Weekly', value: 'Bi-Weekly'},
     {label: 'Semi-Monthly', value: 'Semi-Monthly'},
     {label: 'Monthly', value: 'Monthly'},
-  ];
-
-  const incomeSourceOptions = [
-    {label: 'Business', value: 'Business'},
-    {label: 'Salary', value: 'Salary'},
   ];
 
   return (
@@ -191,7 +254,7 @@ const AddIncome = () => {
                 setShowIncomeSourceInfo(!showIncomeSourceInfo)
               }
               titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
-              placeholder={selectedIncomeSource}
+              placeholder="Income Source"
               value={values.incomeSourceText}
               onChangeText={text => {
                 setIncomeSourceText(text);
@@ -374,6 +437,7 @@ const AddIncome = () => {
             <Button
               title={isEditMode ? 'Update' : fromHome ? 'Update' : 'Add'}
               onPress={handleSubmit}
+              isLoading={saving}
             />
           </>
         )}
@@ -518,123 +582,13 @@ const AddIncome = () => {
         backgroundColor={color.inputField}>
         <Spacer height={40} />
         <View style={{gap: widthPixel(20)}}>
-          <View
-            style={{
-              backgroundColor: color.container,
-              borderRadius: heightPixel(12),
-              paddingHorizontal: widthPixel(20),
-              paddingVertical: heightPixel(20),
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-            <View style={{flex: 1}}>
-              <Text variant="regular" size={14} color={color.tabicon}>
-                Salary
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                Monthly
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                $3000
-              </Text>
-            </View>
-            <View style={{flexDirection: 'row', gap: widthPixel(15)}}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowIncomeSheet(false);
-                  setIsEditMode(true);
-                }}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(7),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Feather name="edit" size={15} color={color.black} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(5),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Image
-                  source={appImages.Deleteimg}
-                  style={{
-                    width: widthPixel(20),
-                    height: heightPixel(20),
-                    resizeMode: 'contain',
-                    tintColor: color.black,
-                  }}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-          {/* Additional Income Item */}
-          <View
-            style={{
-              backgroundColor: color.container,
-              borderRadius: heightPixel(12),
-              paddingHorizontal: widthPixel(20),
-              paddingVertical: heightPixel(20),
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-            }}>
-            <View style={{flex: 1}}>
-              <Text variant="regular" size={14} color={color.tabicon}>
-                Additional{'\n'}Income
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                Monthly
-              </Text>
-            </View>
-            <View style={{flex: 1, alignItems: 'center'}}>
-              <Text variant="medium" size={13} color={color.black}>
-                $5000
-              </Text>
-            </View>
-            <View style={{flexDirection: 'row', gap: widthPixel(15)}}>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                onPress={() => {
-                  setShowIncomeSheet(false);
-                  setIsEditMode(true);
-                }}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(7),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Feather name="edit" size={15} color={color.black} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                activeOpacity={0.7}
-                style={{
-                  backgroundColor: iconButtonBg,
-                  padding: widthPixel(5),
-                  borderRadius: heightPixel(50),
-                }}>
-                <Image
-                  source={appImages.Deleteimg}
-                  style={{
-                    width: widthPixel(20),
-                    height: heightPixel(20),
-                    resizeMode: 'contain',
-                    tintColor: color.black,
-                  }}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <Text
+            variant="medium"
+            size={17}
+            color={color.black}
+            style={{textAlign: 'center'}}>
+            Income saved.
+          </Text>
         </View>
         <Spacer height={40} />
         <Button

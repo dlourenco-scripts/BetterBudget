@@ -88,7 +88,7 @@ const Settings = () => {
     },
     {
       id: '5',
-      title: 'Default Pay Source  (Credit Card)',
+      title: 'Default Pay Source',
       image: appImages.DefaultPay,
       onPress: () => router.navigate('/mainScreens/PaySource'),
     },

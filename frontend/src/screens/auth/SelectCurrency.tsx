@@ -11,11 +11,14 @@ import {Button, FullFlex, Header, Spacer, Text, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
 import {CurrencyCode, useCurrency} from '@/context/CurrencyProvider';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {userApi} from '@/network/api';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
+import {useAuthStore} from '@/store';
 
 const SelectCurrency = () => {
   const color = useThemeColor();
   const {selectedCurrency, setCurrency} = useCurrency();
+  const updateUserData = useAuthStore(state => state.updateUserData);
   const [localCurrency, setLocalCurrency] =
     useState<CurrencyCode>(selectedCurrency);
 
@@ -81,6 +84,10 @@ const SelectCurrency = () => {
         title="Next"
         onPress={async () => {
           await setCurrency(localCurrency);
+          const response = await userApi.update({currency: localCurrency});
+          if (response.success && response.data) {
+            updateUserData(response.data);
+          }
           router.push('/auth/CreateProfle');
         }}
       />

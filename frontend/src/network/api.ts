@@ -39,9 +39,32 @@ export const authApi = {
 
 export const userApi = {
   me: () => callApiPromise(Method.GET, api.users.me),
+  update: (body: any) => callApiPromise(Method.PATCH, api.users.me, body),
 };
 
 export const budgetApi = {
   list: () => callApiPromise(Method.GET, api.budgets.root),
   create: (body: any) => callApiPromise(Method.POST, api.budgets.root, body),
+  get: (budgetId: string) =>
+    callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}`),
+  cycles: (budgetId: string) =>
+    callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}/cycles`),
+  currentCycle: (budgetId: string) =>
+    callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}/cycles/current`),
+  updateCycle: (budgetId: string, cycleId: string, body: any) =>
+    callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}/cycles/${cycleId}`, body),
+  update: (budgetId: string, body: any) =>
+    callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}`, body),
+  delete: (budgetId: string) =>
+    callApiPromise(Method.DELETE, `${api.budgets.root}/${budgetId}`),
+  createIncome: (budgetId: string, body: any) =>
+    callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/incomes`, body),
+  createExpense: (budgetId: string, body: any) =>
+    callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/expenses`, body),
+  deleteExpense: (budgetId: string, expenseId: string) =>
+    callApiPromise(Method.DELETE, `${api.budgets.root}/${budgetId}/expenses/${expenseId}`),
+  createDebt: (budgetId: string, body: any) =>
+    callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/debts`, body),
+  deleteDebt: (budgetId: string, debtId: string) =>
+    callApiPromise(Method.DELETE, `${api.budgets.root}/${budgetId}/debts/${debtId}`),
 };

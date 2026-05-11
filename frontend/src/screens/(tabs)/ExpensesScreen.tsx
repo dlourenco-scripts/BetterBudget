@@ -1,18 +1,21 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
-import {router} from 'expo-router';
+import dayjs from 'dayjs';
+import {router, useFocusEffect} from 'expo-router';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {Feather} from '@expo/vector-icons';
 import {BottomSheet, Header, Spacer, Text, Wrapper} from '@/components';
 import GradientExpandableCard from '@/components/others/GradientExpandableButton';
 import {appImages} from '@/constants/assets';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {budgetApi} from '@/network/api';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 
 interface ExpenseItem {
@@ -20,6 +23,7 @@ interface ExpenseItem {
   title: string;
   value: string;
   subText: string;
+  kind: 'expense' | 'debt';
 }
 
 const ExpensesScreen = () => {
@@ -27,20 +31,55 @@ const ExpensesScreen = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const isDark = color.bg === '#171A21';
-  const [showAddExpenseSheet, setShowAddExpenseSheet] =
-    useState<boolean>(false);
+  const [showAddExpenseSheet, setShowAddExpenseSheet] = useState(false);
+  const [budgetId, setBudgetId] = useState('');
+  const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
+  const [debts, setDebts] = useState<ExpenseItem[]>([]);
 
-  const [expenses] = useState<ExpenseItem[]>([
-    {id: '1', title: 'Rent', value: '26,000', subText: 'Dec-23'},
-    {id: '2', title: 'Maintenance', value: '26,000', subText: 'Dec-23'},
-    {id: '3', title: 'Comcast', value: '26,000', subText: 'Dec-23'},
-  ]);
+  const loadExpenses = useCallback(async () => {
+    try {
+      const budgetsResponse = await budgetApi.list();
+      const firstBudget = budgetsResponse.data?.[0];
+      if (!firstBudget?.id) {
+        setBudgetId('');
+        setExpenses([]);
+        setDebts([]);
+        return;
+      }
 
-  const [debts] = useState<ExpenseItem[]>([
-    {id: '4', title: 'Loan', value: '26,000', subText: 'Dec-23'},
-    {id: '5', title: 'Student Loan', value: '26,000', subText: 'Dec-23'},
-    {id: '6', title: 'Credit Card', value: '26,000', subText: 'Dec-23'},
-  ]);
+      setBudgetId(firstBudget.id);
+      const detailResponse = await budgetApi.get(firstBudget.id);
+      const budget = detailResponse.data;
+      const currentCycle = budget?.currentCycle;
+
+      setExpenses(
+        (currentCycle?.expenses || []).map((expense: any) => ({
+          id: expense.id,
+          title: expense.name,
+          value: Number(expense.amount || 0).toFixed(2),
+          subText: expense.dueDate ? dayjs(expense.dueDate).format('MMM-DD') : '',
+          kind: 'expense',
+        })),
+      );
+      setDebts(
+        (budget?.debts || []).map((debt: any) => ({
+          id: debt.id,
+          title: debt.name,
+          value: Number(debt.balance || 0).toFixed(2),
+          subText: debt.status || 'active',
+          kind: 'debt',
+        })),
+      );
+    } catch (error) {
+      console.error('Unable to load expenses:', error);
+    }
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadExpenses();
+    }, [loadExpenses]),
+  );
 
   const allItems = [...expenses, ...debts];
 
@@ -75,9 +114,25 @@ const ExpensesScreen = () => {
     }
   };
 
-  const handleDeleteAction = () => {
-    setIsSelectionMode(false);
-    setSelectedIds(new Set());
+  const handleDeleteAction = async () => {
+    if (!budgetId) return;
+
+    try {
+      await Promise.all(
+        allItems
+          .filter(item => selectedIds.has(item.id))
+          .map(item =>
+            item.kind === 'debt'
+              ? budgetApi.deleteDebt(budgetId, item.id)
+              : budgetApi.deleteExpense(budgetId, item.id),
+          ),
+      );
+      setIsSelectionMode(false);
+      setSelectedIds(new Set());
+      await loadExpenses();
+    } catch (error: any) {
+      Alert.alert('Unable to delete', error?.message || 'Please try again.');
+    }
   };
 
   const renderItem = (item: ExpenseItem) => (
@@ -172,7 +227,6 @@ const ExpensesScreen = () => {
         }
       />
 
-      {/* Selection Mode Header */}
       {isSelectionMode && (
         <View
           style={{
@@ -221,9 +275,10 @@ const ExpensesScreen = () => {
           <View style={{flexDirection: 'row', gap: 15}}>
             <TouchableOpacity
               onPress={() => {
-                router.navigate(
-                  '/auth/RecurringExpenses?fromExpenses=true&isEdit=true',
-                );
+                router.navigate({
+                  pathname: '/auth/RecurringExpenses',
+                  params: {fromExpenses: 'true', isEdit: 'true', budgetId},
+                });
               }}
               style={{
                 backgroundColor: color.notificationbg,
@@ -250,14 +305,26 @@ const ExpensesScreen = () => {
           Expenses
         </Text>
         <Spacer height={10} />
-        {expenses.map(renderItem)}
+        {expenses.length > 0 ? (
+          expenses.map(renderItem)
+        ) : (
+          <Text size={14} color={color.tabicon}>
+            No expenses in this pay cycle yet.
+          </Text>
+        )}
 
         <Spacer height={20} />
         <Text size={15} variant="medium" color={color.black}>
           Debt
         </Text>
         <Spacer height={10} />
-        {debts.map(renderItem)}
+        {debts.length > 0 ? (
+          debts.map(renderItem)
+        ) : (
+          <Text size={14} color={color.tabicon}>
+            No debts added yet.
+          </Text>
+        )}
         <Spacer height={50} />
       </ScrollView>
 
@@ -281,10 +348,13 @@ const ExpensesScreen = () => {
             activeOpacity={0.8}
             onPress={() => {
               setShowAddExpenseSheet(false);
-              router.navigate('/auth/RecurringExpenses?fromHome=true');
+              router.navigate({
+                pathname: '/auth/RecurringExpenses',
+                params: {fromExpenses: 'true', budgetId},
+              });
             }}>
             <Text size={16} variant="regular" color={color.black}>
-              Recuring Expense
+              Recurring Expense
             </Text>
           </TouchableOpacity>
           <Spacer height={10} />
@@ -298,7 +368,10 @@ const ExpensesScreen = () => {
             activeOpacity={0.8}
             onPress={() => {
               setShowAddExpenseSheet(false);
-              router.navigate('/auth/Debt?fromHome=true');
+              router.navigate({
+                pathname: '/auth/Debt',
+                params: {fromHome: 'true', budgetId},
+              });
             }}>
             <Text size={16} variant="regular" color={color.black}>
               Debt

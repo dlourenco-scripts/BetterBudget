@@ -36,7 +36,7 @@ const OtpField = (props: OtpFieldProps) => {
           </View>
         );
       }}
-      cellCount={5}
+      cellCount={6}
       value={otp}
       onChangeText={setOtp}
     />

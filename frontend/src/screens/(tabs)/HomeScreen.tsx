@@ -1,5 +1,6 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {
+  Alert,
   FlatList,
   Image,
   StyleSheet,
@@ -7,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import dayjs from 'dayjs';
-import {router} from 'expo-router';
+import {router, useFocusEffect} from 'expo-router';
 import {AntDesign, Entypo, Feather} from '@expo/vector-icons';
 import {
   BottomSheet,
@@ -28,27 +29,139 @@ import {colors} from '@/constants/colors';
 import {useCurrency} from '@/context/CurrencyProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {budgetApi} from '@/network/api';
 import {heightPixel, widthPixel, wp} from '@/services/responsive';
+import {useAuthStore} from '@/store';
 
 const HomeScreen = () => {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const {currencySymbol} = useCurrency();
+  const token = useAuthStore(state => state.token);
 
-  // Budget data - in real app, this would come from state/API
-  const [budgets, setBudgets] = useState<Budget[]>([
-    {id: '1', name: 'Home Budget'},
-    {id: '2', name: 'Office Budget'},
-  ]);
-  // Primary budget ID - auto-select first one if only one budget exists
-  const [primaryBudgetId, setPrimaryBudgetId] = useState<string>(
-    budgets.length === 1 ? budgets[0].id : '1',
+  const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [budgetDetails, setBudgetDetails] = useState<any[]>([]);
+  const [primaryBudgetId, setPrimaryBudgetId] = useState<string>('');
+  const [selectedCycleId, setSelectedCycleId] = useState<string>('');
+  const activeBudget =
+    budgetDetails.find(budget => budget.id === primaryBudgetId) ||
+    budgetDetails[0];
+  const activeCycles = activeBudget?.cycles || [];
+  const activeCycle =
+    activeCycles.find((cycle: any) => cycle.id === selectedCycleId) ||
+    activeBudget?.currentCycle ||
+    activeCycles[0];
+  const incomes = activeCycle?.incomes || [];
+  const expenses = activeCycle?.expenses || [];
+  const debts = activeBudget?.debts || [];
+  const incomeFromItems = incomes.reduce(
+    (sum: number, item: any) => sum + Number(item.amount || 0),
+    0,
   );
+  const expensesFromItems = expenses.reduce(
+    (sum: number, item: any) => sum + Number(item.amount || 0),
+    0,
+  );
+  const totalIncome = Number(activeCycle?.totalIncome ?? incomeFromItems);
+  const totalExpenses = Number(activeCycle?.totalExpenses ?? expensesFromItems);
+  const totalDebt = debts.reduce(
+    (sum: number, item: any) => sum + Number(item.balance || 0),
+    0,
+  );
+  const goalAllocation = Number(activeCycle?.goalAllocation || 0);
+  const carryOverIn = Number(activeCycle?.carryOverIn || 0);
+  const carryOverOut = Number(activeCycle?.carryOverOut || 0);
+  const remaining = Number(
+    activeCycle?.remainingAmount ??
+      totalIncome + carryOverIn - totalExpenses - goalAllocation - carryOverOut,
+  );
+  const totalSavings =
+    Number(activeBudget?.currentSavings || 0) +
+    activeCycles
+      .filter((cycle: any) => cycle.cycleIndex <= (activeCycle?.cycleIndex ?? 0))
+      .reduce((sum: number, cycle: any) => sum + Number(cycle.goalAllocation || 0), 0);
 
   const handlePrimaryBudgetChange = (budgetId: string) => {
     setPrimaryBudgetId(budgetId);
+    const nextBudget = budgetDetails.find(budget => budget.id === budgetId);
+    const nextCycle = nextBudget?.currentCycle || nextBudget?.cycles?.[0];
+    if (nextCycle) {
+      setSelectedCycleId(nextCycle.id);
+      setDate(dayjs(nextCycle.cycleStart));
+    }
   };
+
+  const handleAutoFillChange = async (enabled: boolean) => {
+    if (!primaryBudgetId) {
+      return;
+    }
+
+    try {
+      await budgetApi.update(primaryBudgetId, {autoFillEnabled: enabled});
+      await loadBudgets();
+    } catch (error) {
+      console.error('Unable to update auto fill:', error);
+    }
+  };
+
+  const handleSavingsUpdate = async (values: {currentSavings?: number; savingsGoal?: number}) => {
+    if (!primaryBudgetId) {
+      return;
+    }
+
+    try {
+      await budgetApi.update(primaryBudgetId, values);
+      await loadBudgets();
+    } catch (error) {
+      console.error('Unable to update savings:', error);
+    }
+  };
+
+  const loadBudgets = useCallback(async () => {
+    try {
+      setBudgets([]);
+      setBudgetDetails([]);
+      const response = await budgetApi.list();
+      const budgetList = response.data || [];
+      setBudgets(budgetList.map((budget: any) => ({id: budget.id, name: budget.name})));
+
+      const details = (
+        await Promise.all(
+        budgetList.map(async (budget: any) => {
+          const detailResponse = await budgetApi.get(budget.id);
+          return detailResponse.data || budget;
+        }),
+        )
+      ).sort((a: any, b: any) => dayjs(a.cycleStart).valueOf() - dayjs(b.cycleStart).valueOf());
+
+      setBudgetDetails(details);
+
+      const selectedId =
+        primaryBudgetId && budgetList.some((budget: any) => budget.id === primaryBudgetId)
+          ? primaryBudgetId
+          : budgetList[0]?.id || '';
+      setPrimaryBudgetId(selectedId);
+
+      const selectedBudget = details.find((budget: any) => budget.id === selectedId) || details[0];
+      const nextCycle =
+        selectedBudget?.cycles?.find((cycle: any) => cycle.id === selectedCycleId) ||
+        selectedBudget?.currentCycle ||
+        selectedBudget?.cycles?.[0];
+      if (nextCycle) {
+        setSelectedCycleId(nextCycle.id);
+        setDate(dayjs(nextCycle.cycleStart));
+      }
+    } catch (error) {
+      console.error('Unable to load budgets:', error);
+    }
+  }, [primaryBudgetId, selectedCycleId, token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadBudgets();
+    }, [loadBudgets]),
+  );
 
   // Custom colors for specific bottom sheets in dark mode
   const customSheetBg = isDarkMode ? '#171A21' : undefined;
@@ -62,102 +175,10 @@ const HomeScreen = () => {
   const [showtoltip, setShowtoltip] = useState(false);
   const [showOnetimeExpensesSheet, setShowOnetimeExpensesSheet] =
     useState(false);
+  const [oneTimeExpenseName, setOneTimeExpenseName] = useState('');
+  const [oneTimeExpenseAmount, setOneTimeExpenseAmount] = useState('');
+  const [carryOverAmount, setCarryOverAmount] = useState('');
 
-  const ExpandedcardData = [
-    {
-      id: '1',
-      title: 'Debit Card',
-      value: '26,000',
-      items: [
-        {
-          date: 'Dec–23',
-          label: 'Furniture',
-          tag: 'One Time',
-          tagBg: colors.light.tabicon,
-          tagColor: colors.light.primary,
-          amount: '1880.51',
-        },
-        {
-          date: 'Dec–23',
-          label: 'Maintenance Work',
-          tag: 'Variable',
-          tagBg: colors.light.white,
-          tagColor: colors.light.tabicon,
-          amount: '18380.51',
-        },
-        {
-          date: 'Dec–23',
-          label: 'Gas',
-          tag: 'Variable',
-          tagBg: colors.light.white,
-          tagColor: colors.light.tabicon,
-          amount: '18380.51',
-        },
-      ],
-    },
-    {
-      id: '2',
-      title: 'Credit Card',
-      value: '26,000',
-      items: [
-        {
-          date: 'Dec–23',
-          label: 'Furniture',
-          tag: 'One Time',
-          tagBg: colors.light.tabicon,
-          tagColor: colors.light.primary,
-          amount: '1880.51',
-        },
-        {
-          date: 'Dec–23',
-          label: 'Maintenance Work',
-          tag: 'Variable',
-          tagBg: colors.light.white,
-          tagColor: colors.light.tabicon,
-          amount: '18380.51',
-        },
-        {
-          date: 'Dec–23',
-          label: 'Gas',
-          tag: 'Variable',
-          tagBg: colors.light.white,
-          tagColor: colors.light.tabicon,
-          amount: '18380.51',
-        },
-      ],
-    },
-    {
-      id: 3,
-      title: 'Bank Account',
-      value: '26,000',
-      items: [
-        {
-          date: 'Dec–23',
-          label: 'Furniture',
-          tag: 'One Time',
-          tagBg: colors.light.tabicon,
-          tagColor: colors.light.primary,
-          amount: '1880.51',
-        },
-        {
-          date: 'Dec–23',
-          label: 'Maintenance Work',
-          tag: 'Variable',
-          tagBg: colors.light.white,
-          tagColor: colors.light.tabicon,
-          amount: '18380.51',
-        },
-        {
-          date: 'Dec–23',
-          label: 'Gas',
-          tag: 'Variable',
-          tagBg: colors.light.white,
-          tagColor: colors.light.tabicon,
-          amount: '18380.51',
-        },
-      ],
-    },
-  ];
   const NewBudgetData = [
     {
       id: 1,
@@ -165,7 +186,7 @@ const HomeScreen = () => {
       onPress: () => {
         router.push({
           pathname: '/auth/AddIncome',
-          params: {fromHome: 'true'},
+          params: {fromHome: 'true', budgetId: primaryBudgetId},
         });
       },
     },
@@ -182,7 +203,7 @@ const HomeScreen = () => {
       onPress: () => {
         router.push({
           pathname: '/auth/RecurringExpenses',
-          params: {fromHome: 'true'},
+          params: {fromHome: 'true', budgetId: primaryBudgetId},
         });
       },
     },
@@ -192,18 +213,38 @@ const HomeScreen = () => {
       onPress: () => {
         router.push({
           pathname: '/auth/Debt',
-          params: {fromHome: 'true'},
+          params: {fromHome: 'true', budgetId: primaryBudgetId},
         });
       },
     },
   ];
 
   const goPrev = () => {
-    setDate(prev => prev.subtract(1, 'month'));
+    if (activeCycles.length === 0) {
+      setDate(prev => prev.subtract(1, 'month'));
+      return;
+    }
+
+    const currentIndex = activeCycles.findIndex((cycle: any) => cycle.id === activeCycle?.id);
+    const prevCycle = activeCycles[Math.max(0, currentIndex - 1)];
+    if (prevCycle) {
+      setSelectedCycleId(prevCycle.id);
+      setDate(dayjs(prevCycle.cycleStart));
+    }
   };
 
   const goNext = () => {
-    setDate(prev => prev.add(1, 'month'));
+    if (activeCycles.length === 0) {
+      setDate(prev => prev.add(1, 'month'));
+      return;
+    }
+
+    const currentIndex = activeCycles.findIndex((cycle: any) => cycle.id === activeCycle?.id);
+    const nextCycle = activeCycles[Math.min(activeCycles.length - 1, currentIndex + 1)];
+    if (nextCycle) {
+      setSelectedCycleId(nextCycle.id);
+      setDate(dayjs(nextCycle.cycleStart));
+    }
   };
 
   const handleDeletePress = () => {
@@ -214,9 +255,87 @@ const HomeScreen = () => {
     setShowAddBudgetModal(true);
   };
 
-  const handleDeleteConfirm = () => {
-    console.log('Budget deleted');
-    setShowDeleteModal(false);
+  const handleDeleteConfirm = async () => {
+    if (!primaryBudgetId) {
+      setShowDeleteModal(false);
+      return;
+    }
+
+    try {
+      await budgetApi.delete(primaryBudgetId);
+      setShowDeleteModal(false);
+      setPrimaryBudgetId('');
+      setSelectedCycleId('');
+      await loadBudgets();
+    } catch (error: any) {
+      Alert.alert('Unable to delete budget', error?.message || 'Please try again.');
+    }
+  };
+
+  const handleAddOneTimeExpense = async () => {
+    if (!primaryBudgetId) {
+      Alert.alert('No budget selected', 'Create or select a budget before adding an expense.');
+      return;
+    }
+
+    if (!oneTimeExpenseName.trim() || !Number(oneTimeExpenseAmount)) {
+      Alert.alert('Missing expense details', 'Enter an expense name and amount.');
+      return;
+    }
+
+    try {
+      const response = await budgetApi.createExpense(primaryBudgetId, {
+        name: oneTimeExpenseName.trim(),
+        amount: Number(oneTimeExpenseAmount),
+        type: 'One Time',
+        frequency: 'One Time',
+        dueDate: activeCycle?.cycleStart || date.format('YYYY-MM-DD'),
+        category: 'One-Time Expense',
+        priority: 1,
+        notes: '',
+      });
+
+      if (!response.success) {
+        Alert.alert('Unable to save expense', response.message || 'Please try again.');
+        return;
+      }
+
+      setOneTimeExpenseName('');
+      setOneTimeExpenseAmount('');
+      setShowOnetimeExpensesSheet(false);
+      await loadBudgets();
+    } catch (error: any) {
+      Alert.alert('Unable to save expense', error?.message || 'Please try again.');
+    }
+  };
+
+  const handleUpdateCarryOver = async () => {
+    if (!primaryBudgetId || !activeCycle?.id) {
+      Alert.alert('No budget selected', 'Create or select a budget before carrying money over.');
+      return;
+    }
+
+    const amount = Number(carryOverAmount || 0);
+    if (amount < 0 || amount > remaining + carryOverOut) {
+      Alert.alert('Invalid carry over', 'Carry over cannot exceed the current remaining amount.');
+      return;
+    }
+
+    try {
+      const response = await budgetApi.updateCycle(primaryBudgetId, activeCycle.id, {
+        carryOverOut: amount,
+      });
+
+      if (!response.success) {
+        Alert.alert('Unable to update carry over', response.message || 'Please try again.');
+        return;
+      }
+
+      setShowCarryOverSheet(false);
+      await loadBudgets();
+    } catch (error: any) {
+      Alert.alert('Unable to update carry over', error?.message || 'Please try again.');
+    }
   };
 
   const handleDeleteCancel = () => {
@@ -260,6 +379,11 @@ const HomeScreen = () => {
             budgets={budgets}
             primaryBudgetId={primaryBudgetId}
             onPrimaryBudgetChange={handlePrimaryBudgetChange}
+            currentSavings={Number(activeBudget?.currentSavings || 0)}
+            savingsGoal={Number(activeBudget?.savingsGoal || 0)}
+            autoFillEnabled={Boolean(activeBudget?.autoFillEnabled)}
+            onAutoFillChange={handleAutoFillChange}
+            onSavingsUpdate={handleSavingsUpdate}
           />
           <Spacer
             height={20}
@@ -311,7 +435,7 @@ const HomeScreen = () => {
                 </View>
                 <Spacer height={10} />
                 <Text size={18} variant="medium" color={color.primary}>
-                  {currencySymbol}500.0
+                  {currencySymbol}{goalAllocation.toFixed(2)}
                 </Text>
               </View>
               <View>
@@ -340,7 +464,7 @@ const HomeScreen = () => {
                   variant="medium"
                   color={color.black}
                   style={{textAlign: 'right'}}>
-                  {currencySymbol}10,000
+                  {currencySymbol}{totalSavings.toFixed(2)}
                 </Text>
               </View>
             </View>
@@ -393,7 +517,7 @@ const HomeScreen = () => {
                 }}
               />
               <Text size={18} variant="semibold" color={color.white}>
-                {currencySymbol}4.000.00
+                {currencySymbol}{totalExpenses.toFixed(2)}
               </Text>
               <Text size={11} color={color.white}>
                 Total Payments
@@ -429,7 +553,7 @@ const HomeScreen = () => {
                   }}
                 />
                 <Text size={18} variant="semibold" color={color.white}>
-                  {currencySymbol}0
+                  {currencySymbol}{carryOverOut.toFixed(2)}
                 </Text>
                 <TouchableOpacity
                   activeOpacity={0.9}
@@ -441,7 +565,10 @@ const HomeScreen = () => {
                     flexDirection: 'row',
                     alignItems: 'center',
                   }}
-                  onPress={() => setShowCarryOverSheet(true)}>
+                  onPress={() => {
+                    setCarryOverAmount(String(carryOverOut || ''));
+                    setShowCarryOverSheet(true);
+                  }}>
                   <View style={{flexDirection: 'row', alignItems: 'center'}}>
                     <Text size={10} variant="medium" color={color.primary}>
                       Carry Over
@@ -485,7 +612,7 @@ const HomeScreen = () => {
                   }}
                 />
                 <Text size={18} variant="semibold" color={color.white}>
-                  {currencySymbol}100
+                  {currencySymbol}{Number(remaining).toFixed(2)}
                 </Text>
                 <Text size={11} color={color.white}>
                   Total Remaining
@@ -504,7 +631,7 @@ const HomeScreen = () => {
             style={{
               width: '100%',
             }}>
-            <GradientExpandableCard title="Income" value="20,000" />
+            <GradientExpandableCard title="Income" value={totalIncome.toFixed(2)} />
           </View>
         </WalkthroughTooltip>
         <View
@@ -529,7 +656,25 @@ const HomeScreen = () => {
         </View>
         <FlatList
           scrollEnabled={false}
-          data={ExpandedcardData}
+          data={
+            expenses.length > 0
+              ? [
+                  {
+                    id: 'expenses',
+                    title: 'Expenses',
+                    value: totalExpenses.toFixed(2),
+                    items: expenses.map((expense: any) => ({
+                      date: dayjs(expense.dueDate).format('MMM-DD'),
+                      label: expense.name,
+                      tag: expense.type,
+                      tagBg: colors.light.white,
+                      tagColor: colors.light.tabicon,
+                      amount: Number(expense.amount || 0).toFixed(2),
+                    })),
+                  },
+                ]
+              : []
+          }
           keyExtractor={item => item.id.toString()}
           contentContainerStyle={{paddingBottom: 30}}
           renderItem={({item}) => (
@@ -538,7 +683,7 @@ const HomeScreen = () => {
               value={item.value}
               expandedGradientColors={{default: ['#FFD479', '#FFAD3D']}}>
               <View style={{gap: 10}}>
-                {item.items.map((row, index) => (
+                {item.items.map((row: any, index: number) => (
                   <View
                     key={index}
                     style={{
@@ -590,12 +735,21 @@ const HomeScreen = () => {
               </TouchableOpacity>
             </GradientExpandableCard>
           )}
+          ListEmptyComponent={
+            <Text size={14} color={color.tabicon} style={{marginTop: 10}}>
+              No expenses in this pay cycle yet.
+            </Text>
+          }
         />
         <Spacer height={10} />
         <Text size={15} variant="medium" color={color.black}>
           Debt
         </Text>
-        <GradientExpandableCard title="Loan" value="20,000" subText="Dec-23" />
+        <GradientExpandableCard
+          title={debts[0]?.name || 'Debt'}
+          value={totalDebt.toFixed(2)}
+          subText={activeCycle?.cycleStart || 'No budget'}
+        />
       </Wrapper>
 
       {/* Add Budget Modal */}
@@ -695,8 +849,10 @@ const HomeScreen = () => {
         <Spacer height={heightPixel(12)} />
         <TextInput
           title="Expense Name"
-          placeholder="Enter Expense Name"
+          placeholder="Expense Name"
           placeholderTextColor={color.tabicon}
+          value={oneTimeExpenseName}
+          onChangeText={setOneTimeExpenseName}
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
           }
@@ -707,6 +863,8 @@ const HomeScreen = () => {
           title="Amount"
           placeholder="0"
           placeholderTextColor={color.tabicon}
+          value={oneTimeExpenseAmount}
+          onChangeText={setOneTimeExpenseAmount}
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
           }
@@ -717,10 +875,7 @@ const HomeScreen = () => {
         <Spacer height={heightPixel(40)} />
         <Button
           title="Add"
-          onPress={() => {
-            // Handle update logic
-            setShowOnetimeExpensesSheet(false);
-          }}
+          onPress={handleAddOneTimeExpense}
         />
         <Spacer height={heightPixel(30)} />
       </BottomSheet>
@@ -760,6 +915,8 @@ const HomeScreen = () => {
           placeholderTextColor={color.tabicon}
           keyboardType="numeric"
           useCurrencyIcon={true}
+          value={carryOverAmount}
+          onChangeText={setCarryOverAmount}
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
           }
@@ -767,10 +924,7 @@ const HomeScreen = () => {
         <Spacer height={heightPixel(20)} />
         <Button
           title="Update"
-          onPress={() => {
-            // Handle update logic
-            setShowCarryOverSheet(false);
-          }}
+          onPress={handleUpdateCarryOver}
         />
         <Spacer height={heightPixel(40)} />
         <InfoTooltip

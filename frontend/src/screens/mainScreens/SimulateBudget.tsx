@@ -25,13 +25,7 @@ import {useCurrency} from '@/context/CurrencyProvider';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 
-const expensesData = [
-  {id: '1', title: 'Gas Bill', value: '360.96'},
-  {id: '2', title: 'Rent', value: '360.96'},
-  {id: '3', title: 'Gas Bill', value: '360.96'},
-];
-
-const debtData = [{id: '1', title: 'Loan', value: '2360.96'}];
+const expensesData: {id: string; title: string; value: string}[] = [];
 
 const SimulateBudget = () => {
   const color = useThemeColor();
@@ -121,7 +115,7 @@ const SimulateBudget = () => {
             </View>
             <Spacer height={10} />
             <Text size={18} variant="semibold" color={color.primary}>
-              {currencySymbol}500.00
+              {currencySymbol}0.00
             </Text>
           </View>
           <View>
@@ -150,7 +144,7 @@ const SimulateBudget = () => {
               variant="semibold"
               color={color.black}
               style={{textAlign: 'right'}}>
-              {currencySymbol}10,000
+              {currencySymbol}0.00
             </Text>
           </View>
         </View>
@@ -180,6 +174,11 @@ const SimulateBudget = () => {
           data={expensesData}
           keyExtractor={item => item.id}
           renderItem={renderExpenseItem}
+          ListEmptyComponent={
+            <Text size={14} color={color.tabicon}>
+              No simulated expenses yet.
+            </Text>
+          }
         />
       </View>
       <Spacer height={20} />
@@ -192,6 +191,11 @@ const SimulateBudget = () => {
           data={expensesData}
           keyExtractor={item => item.id}
           renderItem={renderExpenseItem}
+          ListEmptyComponent={
+            <Text size={14} color={color.tabicon}>
+              No simulated debt payments yet.
+            </Text>
+          }
         />
       </View>
     </Wrapper>

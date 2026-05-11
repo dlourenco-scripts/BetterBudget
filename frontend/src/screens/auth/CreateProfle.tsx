@@ -12,13 +12,19 @@ import {
 } from '@/components';
 import {appImages} from '@/constants/assets';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {userApi} from '@/network/api';
 import {pickImage} from '@/services/helpingMethods';
 import {widthPixel} from '@/services/responsive';
+import {useAuthStore} from '@/store';
 
 const CreateProfle = () => {
   const [image, setImage] = useState<string | null>(null);
   const [selectedGoal, setSelectedGoal] = useState<string>('');
+  const [fullName, setFullName] = useState('');
+  const [savingsGoal, setSavingsGoal] = useState('');
+  const [saving, setSaving] = useState(false);
   const color = useThemeColor();
+  const updateUserData = useAuthStore(state => state.updateUserData);
 
   const handleImagePick = async () => {
     const uri = await pickImage({
@@ -33,6 +39,28 @@ const CreateProfle = () => {
       console.log('uri', uri);
     } else {
       Alert.alert('No Image Selected');
+    }
+  };
+
+  const handleGetStarted = async () => {
+    setSaving(true);
+    try {
+      const response = await userApi.update({
+        fullName,
+        goalType: selectedGoal === 'debt' ? 'debt' : 'save',
+        savingsGoal: selectedGoal === 'savings' ? Number(savingsGoal || 0) : 0,
+        onboardingComplete: true,
+      });
+
+      if (response.success && response.data) {
+        updateUserData(response.data);
+      }
+
+      router.replace('/auth/Onboarding');
+    } catch (error) {
+      router.replace('/auth/Onboarding');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -77,7 +105,12 @@ const CreateProfle = () => {
         Upload Profile Picture
       </Text>
       <Spacer height={60} />
-      <TextInput title="Name" placeholder="Enter your full name" />
+      <TextInput
+        title="Name"
+        placeholder="Enter your full name"
+        value={fullName}
+        onChangeText={setFullName}
+      />
       <Spacer height={40} />
       <Text
         size={15}
@@ -148,6 +181,8 @@ const CreateProfle = () => {
           placeholderTextColor={color.placeholdertext}
           keyboardType="numeric"
           useCurrencyIcon={true}
+          value={savingsGoal}
+          onChangeText={setSavingsGoal}
         />
       ) : null}
       <FullFlex />
@@ -193,7 +228,8 @@ const CreateProfle = () => {
       <Spacer height={20} />
       <Button
         title="Get Started"
-        onPress={() => router.replace('/auth/Onboarding')}
+        onPress={handleGetStarted}
+        isLoading={saving}
       />
     </Wrapper>
   );

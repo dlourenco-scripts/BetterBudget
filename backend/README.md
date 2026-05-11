@@ -1,8 +1,13 @@
 # BetterBudget Backend
 
-This folder contains a dedicated backend scaffold for the BetterBudget app.
+This folder contains the Node/Express/TypeScript backend for the BetterBudget app.
 
 ## Getting Started
+
+Required versions:
+
+- Node 20 LTS
+- Local PostgreSQL
 
 Install dependencies:
 
@@ -11,7 +16,23 @@ cd backend
 npm install
 ```
 
-Create a `.env` file from `.env.example` if you want to override settings.
+Create the local database:
+
+```bash
+createdb betterbudget
+```
+
+Create a `.env` file from `.env.example`:
+
+```bash
+copy .env.example .env
+```
+
+Set `DATABASE_URL` in `.env`:
+
+```bash
+DATABASE_URL=postgresql://postgres:<password>@localhost:5432/betterbudget
+```
 
 Run the backend locally:
 
@@ -20,6 +41,12 @@ npm run dev
 ```
 
 The API will start on port `4000` by default.
+
+In local development, signup logs the email verification code to the backend console:
+
+```text
+DEV VERIFICATION CODE for user@email.com: 123456
+```
 
 ## Routes
 

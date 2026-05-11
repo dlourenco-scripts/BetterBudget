@@ -88,11 +88,17 @@ const Onboarding = () => {
         animated: true,
       });
     } else {
-      router.replace('/auth/CreateBudget');
+      router.replace({
+        pathname: '/auth/CreateBudget',
+        params: {fromBudgetCreation: 'true'},
+      });
     }
   };
   const skip = () => {
-    router.replace('/auth/CreateBudget');
+    router.replace({
+      pathname: '/auth/CreateBudget',
+      params: {fromBudgetCreation: 'true'},
+    });
   };
 
   const renderItem = ({item}: any) => {
