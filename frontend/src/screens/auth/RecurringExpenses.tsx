@@ -1,10 +1,11 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
   Alert,
   FlatList,
   Image,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -69,6 +70,14 @@ const expenseCategories = [
   ...lifeStyle,
 ];
 
+type SavedExpensePreview = {
+  id: string;
+  name: string;
+  amount: number;
+  category?: string;
+  dueDate?: string;
+};
+
 const RecurringExpenses = () => {
   const {fromHome, fromSimulated, isEdit, fromExpenses, budgetId} = useLocalSearchParams<{
     fromHome?: string;
@@ -103,6 +112,8 @@ const RecurringExpenses = () => {
   const [shownewPaymentSourceSheet, setShownewPaymentSourceSheet] =
     useState(false);
   const [saving, setSaving] = useState(false);
+  const [savedExpenses, setSavedExpenses] = useState<SavedExpensePreview[]>([]);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
 
   const color = useThemeColor();
   const colorScheme = useColorScheme();
@@ -110,6 +121,28 @@ const RecurringExpenses = () => {
   const isDarkMode = colorScheme === 'dark';
   const iconButtonBg = isDark ? '#7A7F8C' : '#FFFFFF';
   const customInputBg = isDarkMode ? '#0F1115' : undefined;
+
+  useEffect(() => {
+    const loadPaymentSources = async () => {
+      if (!budgetId) {
+        return;
+      }
+
+      try {
+        const response = await budgetApi.get(String(budgetId));
+        if (response.success && response.data?.expenses) {
+          const sources = response.data.expenses
+            .map((expense: any) => expense.notes?.trim())
+            .filter(Boolean);
+          setPaymentSources(Array.from(new Set(sources)));
+        }
+      } catch (error) {
+        console.error('Unable to load payment sources:', error);
+      }
+    };
+
+    loadPaymentSources();
+  }, [budgetId]);
 
   // Function to clear all form data
   const clearForm = (resetForm?: () => void) => {
@@ -154,10 +187,13 @@ const RecurringExpenses = () => {
         return;
       }
 
+      if (response.data?.id) {
+        setSavedExpenses(previous => [...previous, response.data]);
+      }
+      clearForm();
+
       if (fromExpenses === 'true') {
         router.navigate('/(tabs)/ExpensesScreen');
-      } else if (fromHome === 'true' || fromSimulated === 'true') {
-        router.back();
       } else {
         setShowIncomeSheet(true);
       }
@@ -165,6 +201,28 @@ const RecurringExpenses = () => {
       Alert.alert('Unable to save expense', error?.message || 'Please try again.');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteSavedExpense = async (expenseId: string) => {
+    if (!budgetId) {
+      return;
+    }
+
+    setDeletingExpenseId(expenseId);
+    try {
+      const response = await budgetApi.deleteExpense(budgetId, expenseId);
+      if (!response.success) {
+        Alert.alert('Unable to delete expense', response.message || 'Please try again.');
+        return;
+      }
+      setSavedExpenses(previous =>
+        previous.filter(expense => expense.id !== expenseId),
+      );
+    } catch (error: any) {
+      Alert.alert('Unable to delete expense', error?.message || 'Please try again.');
+    } finally {
+      setDeletingExpenseId(null);
     }
   };
 
@@ -746,6 +804,51 @@ const RecurringExpenses = () => {
           </Text>
         </View>
         <Spacer height={heightPixel(15)} />
+        {savedExpenses.length > 0 && (
+          <>
+            <View
+              style={[
+                styles.savedExpenseList,
+                savedExpenses.length > 5 && styles.savedExpenseListScrollable,
+              ]}>
+              <ScrollView
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={savedExpenses.length > 5}>
+                {savedExpenses.map(item => (
+                  <View key={item.id} style={styles.savedExpenseRow}>
+                    <View style={styles.savedExpenseInfo}>
+                      <Text
+                        variant="semibold"
+                        size={15}
+                        color={color.black}
+                        numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text
+                        variant="regular"
+                        size={12}
+                        color={color.tabicon}
+                        numberOfLines={1}>
+                        {item.category || 'Expense'}{item.dueDate ? ` - ${item.dueDate}` : ''}
+                      </Text>
+                    </View>
+                    <Text variant="semibold" size={15} color={color.black}>
+                      ${Number(item.amount || 0).toFixed(2)}
+                    </Text>
+                    <TouchableOpacity
+                      activeOpacity={0.7}
+                      disabled={deletingExpenseId === item.id}
+                      onPress={() => handleDeleteSavedExpense(item.id)}
+                      style={styles.deleteExpenseButton}>
+                      <Feather name="x" size={20} color="#D94343" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+            <Spacer height={heightPixel(15)} />
+          </>
+        )}
         <TouchableOpacity
           activeOpacity={0.7}
           onPress={() => {
@@ -1011,6 +1114,31 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#e0e0e0',
+  },
+  savedExpenseList: {
+    maxHeight: heightPixel(290),
+    marginHorizontal: widthPixel(8),
+  },
+  savedExpenseListScrollable: {
+    height: heightPixel(290),
+  },
+  savedExpenseRow: {
+    minHeight: heightPixel(58),
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: widthPixel(10),
+    paddingVertical: heightPixel(10),
+    borderBottomWidth: 1,
+    borderBottomColor: '#E3E5EA',
+  },
+  savedExpenseInfo: {
+    flex: 1,
+  },
+  deleteExpenseButton: {
+    width: widthPixel(34),
+    height: widthPixel(34),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

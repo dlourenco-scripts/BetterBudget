@@ -29,6 +29,7 @@ const initializeSchema = async () => {
         email TEXT UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         full_name TEXT NOT NULL DEFAULT '',
+        profile_image TEXT,
         verified BOOLEAN NOT NULL DEFAULT false,
         currency TEXT NOT NULL DEFAULT 'USD',
         theme TEXT NOT NULL DEFAULT 'light',
@@ -40,7 +41,9 @@ const initializeSchema = async () => {
         goal_type TEXT NOT NULL DEFAULT 'save',
         savings_goal DECIMAL(10,2) NOT NULL DEFAULT 0,
         verification_code TEXT,
+        verification_code_expires_at TIMESTAMP,
         reset_code TEXT,
+        reset_code_expires_at TIMESTAMP,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -163,7 +166,22 @@ const initializeSchema = async () => {
 
     await client.query(`
       ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS profile_image TEXT
+    `);
+
+    await client.query(`
+      ALTER TABLE users
       ADD COLUMN IF NOT EXISTS savings_goal DECIMAL(10,2) NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS verification_code_expires_at TIMESTAMP
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS reset_code_expires_at TIMESTAMP
     `);
 
     await client.query(`

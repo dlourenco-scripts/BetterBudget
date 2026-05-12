@@ -13,6 +13,7 @@ export const api = {
     signup: '/auth/signup',
     login: '/auth/login',
     verifyEmail: '/auth/verify-email',
+    resendVerification: '/auth/resend-verification',
     forgotPassword: '/auth/forgot-password',
     resetPassword: '/auth/reset-password',
   },

@@ -25,34 +25,7 @@ const NotificationScreen = () => {
   const [showNotificationSheet, setShowNotificationSheet] = useState(false);
   const [selectedNotification, setSelectedNotification] =
     useState<Notification | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([
-    {
-      id: '1',
-      message: 'Budget overdrawn.',
-      time: '2h ago',
-      category: 'today',
-      isRead: false,
-    },
-    {
-      id: '2',
-      message:
-        'Carry over $10 amount, next budget cycle will be insufficient to cover expenses.',
-      category: 'yesterday',
-      isRead: true,
-    },
-    {
-      id: '3',
-      message: "Income was added to 12/09/25 budget'.",
-      category: 'yesterday',
-      isRead: true,
-    },
-    {
-      id: '4',
-      message: "Money added from' Job 2 income' for 12/09/25 budget'.",
-      category: 'yesterday',
-      isRead: true,
-    },
-  ]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   const handleLongPress = (id: string) => {
     if (!isSelectionMode) {
@@ -319,6 +292,36 @@ const NotificationScreen = () => {
               <Spacer height={10} />
               {yesterdayNotifications.map(renderNotification)}
             </>
+          )}
+          {notifications.length === 0 && !isSelectionMode && (
+            <View
+              style={{
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: 30,
+                paddingTop: heightPixel(120),
+              }}>
+              <Image
+                source={appImages.Bellimg}
+                tintColor={isDarkMode ? color.white : color.placeholdertext}
+                style={{
+                  height: heightPixel(68),
+                  width: widthPixel(68),
+                  resizeMode: 'contain',
+                }}
+              />
+              <Spacer height={heightPixel(20)} />
+              <Text size={18} variant="medium" color={color.black}>
+                No Notifications
+              </Text>
+              <Spacer height={heightPixel(8)} />
+              <Text
+                size={14}
+                color={color.tabicon}
+                style={{textAlign: 'center'}}>
+                New budget updates and reminders will appear here.
+              </Text>
+            </View>
           )}
         </Wrapper>
       </View>

@@ -70,7 +70,9 @@ const TextInput = ({
   multiline,
   onFocus,
   onBlur,
+  onChangeText,
   placeholder,
+  value,
   ...rest
 }: InputFieldProps) => {
   const colors = useThemeColor();
@@ -155,9 +157,18 @@ const TextInput = ({
 
         <RNTextInput
           {...rest}
+          value={value}
+          onChangeText={onChangeText}
           multiline={multiline}
           onFocus={event => {
             setIsFocused(true);
+            if (
+              useCurrencyIcon &&
+              onChangeText &&
+              /^0+(\.0+)?$/.test(String(value ?? '').trim())
+            ) {
+              onChangeText('');
+            }
             onFocus?.(event);
           }}
           onBlur={event => {

@@ -1,9 +1,9 @@
-import React, {useState} from 'react';
-import {Image, TouchableOpacity, View} from 'react-native';
-import {router} from 'expo-router';
-import {Calendar} from 'react-native-calendars';
-import {BarChart, LineChart} from 'react-native-gifted-charts';
-import {Entypo, Feather, FontAwesome5} from '@expo/vector-icons';
+import React, {useCallback, useMemo, useState} from 'react';
+import {TouchableOpacity, View} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import dayjs from 'dayjs';
+import {router, useFocusEffect} from 'expo-router';
+import {Feather} from '@expo/vector-icons';
 import {
   BottomSheet,
   Header,
@@ -13,86 +13,159 @@ import {
   ToggleButton,
   Wrapper,
 } from '@/components';
-import {CircularProgress} from '@/components/others/CircularProgress';
+import IconToggleButton from '@/components/IconToggleButton';
+import GradientExpandableCard from '@/components/others/GradientExpandableButton';
 import WalkthroughTooltip from '@/components/others/WalkthroughTooltip';
-import {appImages} from '@/constants/assets';
-import {colors} from '@/constants/colors';
 import {useCurrency} from '@/context/CurrencyProvider';
 import {useWalkthrough} from '@/context/WalkthroughProvider';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {budgetApi} from '@/network/api';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
-
-const getBarData = (isDark: boolean) => [
-  {
-    label: '1st Week',
-    frontColor: '#F4A623',
-    value: 5,
-    spacing: 10,
-  },
-  {
-    value: 10,
-    frontColor: isDark ? '#FFFFFF' : '#3C2A1E',
-    spacing: 50,
-  },
-
-  {
-    label: '2nd Week',
-    frontColor: '#F4A623',
-    value: 7,
-    spacing: 15,
-  },
-  {
-    value: 3,
-    frontColor: isDark ? '#FFFFFF' : '#3C2A1E',
-    spacing: 50,
-  },
-
-  {
-    label: '3rd Week',
-    frontColor: '#F4A623',
-    value: 2,
-    spacing: 15,
-  },
-  {
-    value: 7,
-    frontColor: isDark ? '#FFFFFF' : '#3C2A1E',
-    spacing: 50,
-  },
-
-  {
-    label: '4th Week',
-    frontColor: '#F4A623',
-    value: 5,
-    spacing: 15,
-  },
-  {
-    value: 7,
-    frontColor: isDark ? '#FFFFFF' : '#3C2A1E',
-    spacing: 50,
-  },
-];
-
-const getLineData = (textColor: string, currencySymbol: string) => [
-  {value: 4000, dataPointText: `${currencySymbol}4,000`, textColor: textColor},
-  {
-    value: 10000,
-    dataPointText: `${currencySymbol}10,000`,
-    textColor: textColor,
-  },
-];
+import {useAuthStore} from '@/store';
 
 const InsightScreen = () => {
   const color = useThemeColor();
   const {currencySymbol} = useCurrency();
-  const {nextStep, currentStep} = useWalkthrough();
-  const isDark = color.bg === colors.dark.bg;
+  const {currentStep} = useWalkthrough();
+  const userData = useAuthStore(state => state.userData);
+  const primaryBudgetStorageKey = `betterbudget.primaryBudgetId.${userData?.email || 'default'}`;
+  const isDark = color.bg === '#171A21';
   const customInputBg = isDark ? '#0F1115' : undefined;
-  const [showInsightSheet, setShowInsightSheet] = React.useState(false);
+  const [showInsightSheet, setShowInsightSheet] = useState(false);
   const [showFinancialSheet, setShowFinancialSheet] = useState(false);
+  const [insightViewIndex, setInsightViewIndex] = useState(0);
   const [selectedTabIndex, setSelectedTabIndex] = useState<number>(0);
-  const [selectedForecastDate, setSelectedForecastDate] = useState('');
+  const [budget, setBudget] = useState<any>(null);
 
-  // Auto-open sheet when reaching Step 7
+  const currentCycle = budget?.currentCycle;
+  const expenses = budget?.expenses || [];
+  const cycleExpenses = currentCycle?.expenses || [];
+  const currentMonthKey = dayjs(
+    currentCycle?.cycleStart || currentCycle?.cycle_start || new Date(),
+  ).format('YYYY-MM');
+  const totalIncome = Number(currentCycle?.totalIncome || 0);
+  const totalExpenses = Number(currentCycle?.totalExpenses || 0);
+  const totalDebt = (budget?.debts || []).reduce(
+    (sum: number, debt: any) => sum + Number(debt.balance || 0),
+    0,
+  );
+  const goalAllocation = Number(currentCycle?.goalAllocation || 0);
+  const monthlySummary = useMemo(() => {
+    const groups = (budget?.cycles || []).reduce((items: Record<string, any>, cycle: any) => {
+      const key = dayjs(cycle.cycleStart || cycle.cycle_start).format('YYYY-MM');
+      if (!items[key]) {
+        items[key] = {
+          key,
+          label: dayjs(cycle.cycleStart || cycle.cycle_start).format('MMM'),
+          income: 0,
+          expenses: 0,
+        };
+      }
+
+      items[key].income += Number(cycle.totalIncome || 0);
+      items[key].expenses += Number(cycle.totalExpenses || 0);
+      return items;
+    }, {});
+
+    const rows = Object.values(groups)
+      .sort((a: any, b: any) => a.key.localeCompare(b.key))
+      .slice(-6);
+
+    if (rows.length > 0) {
+      return rows as {key: string; label: string; income: number; expenses: number}[];
+    }
+
+    return [
+      {
+        key: dayjs().format('YYYY-MM'),
+        label: dayjs().format('MMM'),
+        income: totalIncome,
+        expenses: totalExpenses,
+      },
+    ];
+  }, [budget?.cycles, totalExpenses, totalIncome]);
+  const monthlyMax = Math.max(
+    ...monthlySummary.flatMap(item => [item.income, item.expenses]),
+    1,
+  );
+  const currentMonthSummary =
+    monthlySummary.find(item => item.key === currentMonthKey) ||
+    monthlySummary[monthlySummary.length - 1] || {
+      income: totalIncome,
+      expenses: totalExpenses,
+    };
+  const monthlyIncome = Number(currentMonthSummary.income || 0);
+  const monthlyExpenses = Number(currentMonthSummary.expenses || 0);
+  const monthlyRemaining = monthlyIncome - monthlyExpenses;
+  const comparisonRows = [
+    {label: 'Income', amount: monthlyIncome, tint: color.primary},
+    {label: 'Expenses', amount: monthlyExpenses, tint: '#7C1500'},
+    {label: 'Allocated', amount: goalAllocation, tint: '#3D7B8F'},
+    {
+      label: 'Remaining',
+      amount: monthlyRemaining,
+      tint: monthlyRemaining < 0 ? '#D92D20' : color.tabicon,
+    },
+  ];
+  const maxIncomeExpense = Math.max(
+    ...comparisonRows.map(item => Math.abs(item.amount)),
+    1,
+  );
+
+  const expenseCategories = useMemo<Record<string, number>>(() => {
+    return (expenses as any[]).reduce((groups: Record<string, number>, expense: any) => {
+      const category = expense.category || 'Uncategorized';
+      groups[category] = (groups[category] || 0) + Number(expense.amount || 0);
+      return groups;
+    }, {});
+  }, [expenses]);
+
+  const cyclePaymentSources = useMemo<Record<string, number>>(() => {
+    return (cycleExpenses as any[]).reduce((groups: Record<string, number>, expense: any) => {
+      const source = expense.notes?.trim() || 'Unassigned';
+      groups[source] = (groups[source] || 0) + Number(expense.amount || 0);
+      return groups;
+    }, {});
+  }, [cycleExpenses]);
+  const maxCategoryAmount = Math.max(
+    ...Object.values(expenseCategories).map(amount => Number(amount)),
+    1,
+  );
+  const totalBudgetExpenses = Object.values(expenseCategories).reduce(
+    (sum, amount) => sum + Number(amount || 0),
+    0,
+  );
+  const sortedCategoryEntries = Object.entries(expenseCategories).sort(
+    ([, firstAmount], [, secondAmount]) => Number(secondAmount) - Number(firstAmount),
+  );
+
+  const loadInsights = useCallback(async () => {
+    try {
+      const budgetsResponse = await budgetApi.list();
+      const budgetList = budgetsResponse.data || [];
+      const storedPrimaryBudgetId = await AsyncStorage.getItem(primaryBudgetStorageKey);
+      const targetBudget =
+        budgetList.find((item: any) => item.id === storedPrimaryBudgetId) ||
+        budgetList[0];
+      if (!targetBudget?.id) {
+        setBudget(null);
+        return;
+      }
+
+      const detailResponse = await budgetApi.get(targetBudget.id);
+      setBudget(detailResponse.data || null);
+    } catch (error) {
+      console.error('Unable to load insights:', error);
+      setBudget(null);
+    }
+  }, [primaryBudgetStorageKey]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadInsights();
+    }, [loadInsights]),
+  );
+
   React.useEffect(() => {
     if (currentStep === 7) {
       setTimeout(() => {
@@ -104,10 +177,7 @@ const InsightScreen = () => {
   return (
     <Wrapper
       keyboardProps={{stickyHeaderIndices: [0], bounces: false}}
-      bottomSpace={false}
-      containerStyle={{
-        paddingHorizontal: 0,
-      }}>
+      bottomSpace={false}>
       <Header
         canGoBack={false}
         title="Insights"
@@ -124,7 +194,6 @@ const InsightScreen = () => {
               borderRadius: 50,
               backgroundColor: color.tabBackground,
               padding: 5,
-              marginHorizontal: 20,
             }}
             onPress={() => setShowInsightSheet(true)}>
             <Feather name="more-horizontal" size={22} color={color.tabicon} />
@@ -132,329 +201,270 @@ const InsightScreen = () => {
         }
       />
       <Spacer height={20} />
+
+      <IconToggleButton
+        options={[
+          {label: 'Comparison', icon: 'bar-chart'},
+          {label: 'Breakdown', icon: 'pie-chart'},
+        ]}
+        selectedIndex={insightViewIndex}
+        onToggle={setInsightViewIndex}
+      />
+      <Spacer height={16} />
+
       <View
         style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 20,
-          marginHorizontal: 15,
+          backgroundColor: color.inputField,
+          borderRadius: 14,
+          padding: 16,
         }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 25,
-            marginLeft: 40,
-          }}>
-          <CircularProgress progress={50} size={110} strokeWidth={5}>
-            <Text
-              variant="medium"
-              size={13}
-              color={color.black}
-              style={{textAlign: 'center'}}>
-              Monthly {'\n'} Overview
+        <View style={{flexDirection: 'row', justifyContent: 'space-between', gap: 12}}>
+          <View>
+            <Text size={12} color={color.tabicon}>
+              Income vs Expenses
             </Text>
-          </CircularProgress>
-          <View
-            style={{
-              height: 110,
-              width: 2,
-              backgroundColor: color.primary,
-            }}
-          />
-        </View>
-        <View style={{flex: 1, justifyContent: 'center', marginLeft: 10}}>
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-            <Image
-              source={appImages.Paymentimg}
-              style={{
-                height: heightPixel(33),
-                width: widthPixel(33),
-                resizeMode: 'contain',
-                tintColor: isDark ? color.white : undefined,
-              }}
-            />
-            <View>
-              <Text size={12} color={color.black}>
-                Income
-              </Text>
-              <View
-                style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
-                <Text size={16} variant="bold" color={color.primary}>
-                  + {currencySymbol}4.000.00
-                </Text>
-                <FontAwesome5
-                  name="long-arrow-alt-up"
-                  size={16}
-                  color={color.primary}
-                />
-              </View>
-            </View>
+            <Text size={22} variant="semibold" color={color.black}>
+              {currencySymbol}
+              {totalIncome.toFixed(2)}
+            </Text>
           </View>
-          <View
-            style={{
-              width: '85%',
-              height: 2,
-              backgroundColor: color.primary,
-              marginVertical: 10,
-            }}
-          />
-          <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-            <Image
-              source={appImages.Walletimg}
-              style={{
-                height: heightPixel(33),
-                width: widthPixel(33),
-                resizeMode: 'contain',
-                tintColor: isDark ? color.white : undefined,
-              }}
-            />
-            <View>
-              <Text size={12} color={color.black}>
-                Expenses
-              </Text>
-              <View
-                style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
-                <Text size={16} variant="bold" color={color.tabicon}>
-                  {currencySymbol} - 100.00
+          <View style={{alignItems: 'flex-end'}}>
+            <Text size={12} color={color.tabicon}>
+              Expenses
+            </Text>
+            <Text size={22} variant="semibold" color="#7C1500">
+              {currencySymbol}
+              {totalExpenses.toFixed(2)}
+            </Text>
+          </View>
+        </View>
+        <Spacer height={16} />
+        <View style={{gap: 12}}>
+          {monthlySummary.map(item => (
+            <View key={item.key}>
+              <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                <Text size={12} variant="medium" color={color.black}>
+                  {item.label}
                 </Text>
-                <FontAwesome5
-                  name="long-arrow-alt-down"
-                  size={16}
-                  color={color.tabicon}
-                />
+                <Text size={12} color={color.tabicon}>
+                  {currencySymbol}
+                  {item.income.toFixed(0)} / {currencySymbol}
+                  {item.expenses.toFixed(0)}
+                </Text>
+              </View>
+              <Spacer height={6} />
+              <View style={{gap: 4}}>
+                <View
+                  style={{
+                    height: 8,
+                    borderRadius: 20,
+                    backgroundColor: color.bg,
+                    overflow: 'hidden',
+                  }}>
+                  <View
+                    style={{
+                      width: `${Math.min(100, (item.income / monthlyMax) * 100)}%`,
+                      height: '100%',
+                      backgroundColor: color.primary,
+                    }}
+                  />
+                </View>
+                <View
+                  style={{
+                    height: 8,
+                    borderRadius: 20,
+                    backgroundColor: color.bg,
+                    overflow: 'hidden',
+                  }}>
+                  <View
+                    style={{
+                      width: `${Math.min(100, (item.expenses / monthlyMax) * 100)}%`,
+                      height: '100%',
+                      backgroundColor: '#7C1500',
+                    }}
+                  />
+                </View>
               </View>
             </View>
+          ))}
+        </View>
+        <Spacer height={12} />
+        <View style={{flexDirection: 'row', gap: widthPixel(14)}}>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+            <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: color.primary}} />
+            <Text size={11} color={color.tabicon}>
+              Income
+            </Text>
+          </View>
+          <View style={{flexDirection: 'row', alignItems: 'center', gap: 6}}>
+            <View style={{width: 10, height: 10, borderRadius: 5, backgroundColor: '#7C1500'}} />
+            <Text size={11} color={color.tabicon}>
+              Expenses
+            </Text>
           </View>
         </View>
       </View>
-      <Spacer height={40} />
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: color.primary,
-          borderTopLeftRadius: 40,
-          borderTopRightRadius: 40,
-          paddingHorizontal: 20,
-          paddingBottom: 20,
-        }}>
-        <Spacer height={40} />
-        <View
-          style={{
-            backgroundColor: isDark ? '#1F1F1F' : '#FFF7EC',
-            paddingHorizontal: widthPixel(25),
-            paddingVertical: heightPixel(20),
-            borderRadius: 25,
-            paddingBottom: heightPixel(20),
-          }}>
+      <Spacer height={10} />
+
+      {insightViewIndex === 0 ? (
+        <>
+          <GradientExpandableCard title="Monthly Income" value={monthlyIncome.toFixed(2)} />
+          <Spacer height={10} />
+          <GradientExpandableCard title="Monthly Expenses" value={monthlyExpenses.toFixed(2)} />
+          <Spacer height={10} />
+          <GradientExpandableCard title="Debt Balance" value={totalDebt.toFixed(2)} />
+          <Spacer height={10} />
+          <GradientExpandableCard
+            title="Monthly Remaining"
+            value={monthlyRemaining.toFixed(2)}
+            valueStyle={monthlyRemaining < 0 ? {color: '#D92D20'} : undefined}
+          />
+          <Spacer height={14} />
           <View
             style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              marginBottom: 10,
-              alignItems: 'center',
+              backgroundColor: color.inputField,
+              borderRadius: 14,
+              padding: 14,
+              gap: 12,
             }}>
-            <Text size={15} variant="medium" color={color.black}>
-              April Expenses
-            </Text>
+            {comparisonRows.map(item => (
+              <View key={item.label}>
+                <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                  <Text size={13} color={color.black} variant="medium">
+                    {item.label}
+                  </Text>
+                  <Text
+                    size={13}
+                    color={item.amount < 0 ? '#D92D20' : color.black}>
+                    {currencySymbol}
+                    {item.amount.toFixed(2)}
+                  </Text>
+                </View>
+                <Spacer height={6} />
+                <View
+                  style={{
+                    height: 8,
+                    borderRadius: 20,
+                    backgroundColor: color.bg,
+                    overflow: 'hidden',
+                  }}>
+                  <View
+                    style={{
+                      width: `${Math.min(100, Math.max(0, (Math.abs(item.amount) / maxIncomeExpense) * 100))}%`,
+                      height: '100%',
+                      borderRadius: 20,
+                      backgroundColor: item.tint,
+                    }}
+                  />
+                </View>
+              </View>
+            ))}
+          </View>
+        </>
+      ) : (
+        <>
+          <GradientExpandableCard
+            title="By Pay Source"
+            value={totalExpenses.toFixed(2)}
+            expandedGradientColors={{default: ['#FFD479', '#FFAD3D']}}>
+            <View style={{gap: 10}}>
+              {Object.entries(cyclePaymentSources).length > 0 ? (
+                Object.entries(cyclePaymentSources).map(([source, amount]) => (
+                  <View
+                    key={source}
+                    style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+                    <Text size={12} color="#000">
+                      {source}
+                    </Text>
+                    <Text size={12} color="#000" variant="medium">
+                      {currencySymbol}
+                      {amount.toFixed(2)}
+                    </Text>
+                  </View>
+                ))
+              ) : (
+                <Text size={12} color="#000">
+                  No expenses in this pay cycle yet.
+                </Text>
+              )}
+            </View>
+          </GradientExpandableCard>
+          <Spacer height={14} />
+          <Text size={16} variant="medium" color={color.black}>
+            Expense Categories
+          </Text>
+          <Text size={12} color={color.tabicon}>
+            Total budgeted expenses: {currencySymbol}
+            {totalBudgetExpenses.toFixed(2)}
+          </Text>
+          <Spacer height={10} />
+          {sortedCategoryEntries.length > 0 ? (
+            sortedCategoryEntries.map(([category, amount]) => {
+              const percent = totalBudgetExpenses
+                ? Math.round((Number(amount) / totalBudgetExpenses) * 100)
+                : 0;
+
+              return (
+          <View
+            key={category}
+            style={{
+              backgroundColor: color.inputField,
+              borderRadius: 12,
+              padding: 14,
+              marginBottom: 10,
+            }}>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between'}}>
+              <Text size={14} color={color.black}>
+                {category}
+              </Text>
+              <Text size={14} variant="medium" color={color.black}>
+                {currencySymbol}
+                {Number(amount).toFixed(2)} ({percent}%)
+              </Text>
+            </View>
+            <Spacer height={8} />
             <View
               style={{
-                backgroundColor: '#F6B756',
-                padding: 8,
-                borderRadius: 10,
+                height: 7,
+                borderRadius: 20,
+                backgroundColor: color.bg,
+                overflow: 'hidden',
               }}>
-              <Image
-                source={appImages.Calender}
+              <View
                 style={{
-                  tintColor: '#000000',
-                  height: heightPixel(20),
-                  width: widthPixel(20),
-                  resizeMode: 'contain',
+                  width: `${Math.min(100, (Number(amount) / maxCategoryAmount) * 100)}%`,
+                  height: '100%',
+                  backgroundColor: color.primary,
                 }}
               />
             </View>
           </View>
-
-          <BarChart
-            data={getBarData(isDark)}
-            barWidth={widthPixel(7)}
-            spacing={10}
-            noOfSections={4}
-            maxValue={20}
-            stepValue={5}
-            yAxisLabelTexts={['', '1k', '5k', '10k', '15k', '20k']}
-            yAxisTextStyle={{
-              color: color.black,
-            }}
-            yAxisThickness={0}
-            xAxisThickness={2}
-            xAxisColor="#707070"
-            dashGap={3}
-            dashWidth={2}
-            hideRules={false}
-            hideYAxisText={false}
-            barBorderTopLeftRadius={4}
-            barBorderTopRightRadius={4}
-            labelWidth={40}
-            yAxisLabelWidth={widthPixel(35)}
-            labelsDistanceFromXaxis={5}
-            xAxisLabelTextStyle={{
-              color: color.black,
-              fontSize: 12,
-            }}
-          />
-        </View>
-        <Spacer height={20} />
-        <View style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-          <Text size={18} variant="semibold" color={color.white}>
-            Show Detailed Expenses
-          </Text>
+              );
+            })
+          ) : (
+            <Text size={14} color={color.tabicon}>
+              No expenses added yet.
+            </Text>
+          )}
           <TouchableOpacity
-            activeOpacity={0.7}
+            activeOpacity={0.8}
+            onPress={() => router.navigate('/mainScreens/Insights')}
             style={{
-              borderRadius: 50,
-              backgroundColor: color.white,
-              padding: 5,
-              alignSelf: 'flex-start',
-            }}
-            onPress={() => router.navigate('/mainScreens/Insights')}>
-            <Entypo
-              name="chevron-thin-right"
-              size={15}
-              color={isDark ? '#000000' : color.tabicon}
-            />
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: color.primary,
+              paddingVertical: heightPixel(12),
+              alignItems: 'center',
+              marginTop: heightPixel(6),
+            }}>
+            <Text size={14} variant="medium" color={color.primary}>
+              View Detailed Breakdown
+            </Text>
           </TouchableOpacity>
-        </View>
-        <Spacer height={10} />
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}>
-          <Text size={14} variant="semibold" color="#000000">
-            Current Savings
-          </Text>
-          <Text size={14} variant="semibold" color={color.white}>
-            Savings Goal
-          </Text>
-        </View>
-        <Spacer height={15} />
-        <View
-          style={{
-            backgroundColor: color.tabBackground,
-            borderRadius: 50,
-            paddingHorizontal: 10,
-            paddingVertical: 5,
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}>
-          <View
-            style={{
-              flex: 1,
-              backgroundColor: color.primary,
-              borderRadius: 30,
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 10,
-              paddingVertical: 5,
-              justifyContent: 'space-between',
-            }}>
-            <Text size={14} color="#000000">
-              0%
-            </Text>
-            <Text size={14} color="#000000">
-              4000%
-            </Text>
-          </View>
-          <Text
-            size={14}
-            color={color.black}
-            variant="italic"
-            style={{
-              marginLeft: 10,
-            }}>
-            {currencySymbol}10,000
-          </Text>
-        </View>
-        <Spacer height={heightPixel(30)} />
-        <View
-          style={{
-            backgroundColor: isDark ? '#1F1F1F' : '#FFF9F0',
-            borderRadius: 32,
-            paddingVertical: heightPixel(20),
-          }}>
-          <View
-            style={{
-              marginHorizontal: widthPixel(15),
-              borderRadius: 20,
-              backgroundColor: color.primary,
-              alignSelf: 'flex-start',
-              paddingHorizontal: widthPixel(10),
-              paddingVertical: heightPixel(5),
-            }}>
-            <Text size={14} variant="medium" color="#000000">
-              Projected Savings
-            </Text>
-          </View>
-          <View
-            style={{
-              // width: '100%',
-              marginLeft: widthPixel(-20),
-            }}>
-            <LineChart
-              animateOnDataChange
-              animationDuration={300}
-              initialSpacing={widthPixel(20)}
-              data={getLineData(
-                isDark ? '#FFFFFF' : color.black,
-                currencySymbol,
-              )}
-              thickness={widthPixel(3)}
-              color="#F0A12A"
-              dataPointsColor="#F0A12A"
-              dataPointsRadius={0}
-              areaChart={true}
-              startFillColor="#FFBF47"
-              endFillColor="#FFFFFF"
-              startOpacity={1}
-              endOpacity={0}
-              hideAxesAndRules={true}
-              maxValue={widthPixel(14000)}
-              adjustToWidth={true}
-              yAxisExtraHeight={0}
-              trimYAxisAtTop={false}
-              spacing={widthPixel(310)}
-              textShiftX={-widthPixel(15)}
-              textShiftY={-heightPixel(15)}
-            />
-          </View>
-          <View
-            style={{
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginHorizontal: 25,
-            }}>
-            <View style={{alignItems: 'center'}}>
-              <Text size={13} color={isDark ? '#FFFFFF' : color.black}>
-                Jan 01, 2025
-              </Text>
-              <Text size={10} color={isDark ? '#FFFFFF' : color.black}>
-                Current Date
-              </Text>
-            </View>
-            <View style={{alignItems: 'center'}}>
-              <Text size={13} color={isDark ? '#FFFFFF' : color.black}>
-                Jan 01, 2025
-              </Text>
-              <Text size={10} color={isDark ? '#FFFFFF' : color.black}>
-                Current Date
-              </Text>
-            </View>
-          </View>
-        </View>
-      </View>
+        </>
+      )}
+      <Spacer height={20} />
+
       <BottomSheet
         visible={showInsightSheet}
         onClose={() => setShowInsightSheet(false)}
@@ -493,39 +503,34 @@ const InsightScreen = () => {
               <Feather name="chevron-right" size={22} color={color.walletbg} />
             </TouchableOpacity>
           </WalkthroughTooltip>
-          <WalkthroughTooltip
-            stepNumber={8}
-            content="Click here for financial forecast"
-            placement="top"
-            displayDelay={500}>
-            <TouchableOpacity
-              style={{
-                width: '80%',
-                backgroundColor: color.bg,
-                borderRadius: heightPixel(12),
-                paddingHorizontal: widthPixel(13),
-                paddingVertical: heightPixel(12),
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                borderWidth: 1,
-                borderColor: color.primary,
-                marginHorizontal: widthPixel(35),
-              }}
-              activeOpacity={0.8}
-              onPress={() => {
-                setShowInsightSheet(false);
-                setSelectedTabIndex(0);
-                setShowFinancialSheet(true);
-              }}>
-              <Text variant="medium" size={16} color={color.black}>
-                Financial Forecast
-              </Text>
-              <Feather name="chevron-right" size={22} color={color.walletbg} />
-            </TouchableOpacity>
-          </WalkthroughTooltip>
+          <TouchableOpacity
+            style={{
+              width: '80%',
+              backgroundColor: color.bg,
+              borderRadius: heightPixel(12),
+              paddingHorizontal: widthPixel(13),
+              paddingVertical: heightPixel(12),
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderWidth: 1,
+              borderColor: color.primary,
+              marginHorizontal: widthPixel(35),
+            }}
+            activeOpacity={0.8}
+            onPress={() => {
+              setShowInsightSheet(false);
+              setSelectedTabIndex(0);
+              setShowFinancialSheet(true);
+            }}>
+            <Text variant="medium" size={16} color={color.black}>
+              Financial Forecast
+            </Text>
+            <Feather name="chevron-right" size={22} color={color.walletbg} />
+          </TouchableOpacity>
         </View>
       </BottomSheet>
+
       <BottomSheet
         visible={showFinancialSheet}
         onClose={() => setShowFinancialSheet(false)}
@@ -539,140 +544,20 @@ const InsightScreen = () => {
             selectedIndex={selectedTabIndex}
             onToggle={setSelectedTabIndex}
           />
-          {selectedTabIndex === 0 ? (
-            <TextInput
-              title="Amount"
-              placeholder="0"
-              placeholderTextColor={color.tabicon}
-              keyboardType="numeric"
-              useCurrencyIcon={true}
-              inputContainerStyle={
-                customInputBg ? {backgroundColor: customInputBg} : undefined
-              }
-            />
-          ) : (
-            <Calendar
-              renderArrow={direction => (
-                <Entypo
-                  name={
-                    direction === 'left'
-                      ? 'chevron-thin-left'
-                      : 'chevron-thin-right'
-                  }
-                  size={20}
-                  color={color.black}
-                />
-              )}
-              onDayPress={day => {
-                setSelectedForecastDate(day.dateString);
-                setShowFinancialSheet(false);
-              }}
-              markedDates={{
-                ...Object.fromEntries(
-                  Array.from({length: 8}, (_, i) => {
-                    const date = new Date();
-                    date.setDate(date.getDate() + i);
-                    const dateString = date.toISOString().split('T')[0];
-                    return [
-                      dateString,
-                      {
-                        marked: true,
-                        dotColor: 'transparent',
-                        textColor: color.primary,
-                      },
-                    ];
-                  }),
-                ),
-                ...(selectedForecastDate
-                  ? {
-                      [selectedForecastDate]: {
-                        selected: true,
-                        selectedColor: color.primary,
-                        selectedTextColor: color.black,
-                      },
-                    }
-                  : {}),
-              }}
-              theme={
-                {
-                  backgroundColor: color.inputField,
-                  calendarBackground: color.inputField,
-                  textSectionTitleColor: color.black,
-                  selectedDayBackgroundColor: color.primary,
-                  selectedDayTextColor: color.black,
-                  todayTextColor: color.primary,
-                  dayTextColor: color.black,
-                  textDisabledColor: color.disabled,
-                  monthTextColor: color.black,
-                  textMonthFontWeight: '600',
-                  textDayFontSize: 16,
-                  textMonthFontSize: 18,
-                  textDayHeaderFontSize: 14,
-                  arrowColor: color.black,
-                  todayBackgroundColor: 'transparent',
-                  'stylesheet.calendar.header': {
-                    header: {
-                      flexDirection: 'row',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      alignSelf: 'center',
-                      marginTop: 16,
-                      marginBottom: 20,
-                      backgroundColor: 'transparent',
-                      borderRadius: 50,
-                      paddingVertical: 12,
-                      paddingHorizontal: 20,
-                      width: '80%',
-                    },
-                    monthText: {
-                      fontSize: 18,
-                      fontWeight: '600',
-                      color: color.black,
-                      marginHorizontal: 30,
-                    },
-                    arrow: {
-                      padding: 5,
-                    },
-                    arrowImage: {
-                      tintColor: color.black,
-                    },
-                    week: {
-                      marginTop: 10,
-                      paddingTop: 20,
-                      borderTopWidth: 1,
-                      borderTopColor: color.border,
-                      flexDirection: 'row',
-                      justifyContent: 'space-around',
-                    },
-                  },
-                  'stylesheet.day.basic': {
-                    base: {
-                      width: 32,
-                      height: 32,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                    },
-                    text: {
-                      marginTop: 4,
-                      fontSize: 16,
-                      fontWeight: '400',
-                      color: color.black,
-                    },
-                    today: {
-                      backgroundColor: 'transparent',
-                    },
-                    todayText: {
-                      color: color.primary,
-                      fontWeight: '600',
-                    },
-                  },
-                } as any
-              }
-              style={{
-                borderRadius: 10,
-              }}
-            />
-          )}
+          <TextInput
+            title={selectedTabIndex === 0 ? 'Amount' : 'Target Date'}
+            placeholder={selectedTabIndex === 0 ? '0' : 'YYYY-MM-DD'}
+            placeholderTextColor={color.tabicon}
+            keyboardType={selectedTabIndex === 0 ? 'numeric' : 'default'}
+            useCurrencyIcon={selectedTabIndex === 0}
+            inputContainerStyle={
+              customInputBg ? {backgroundColor: customInputBg} : undefined
+            }
+          />
+          <Text size={14} color={color.tabicon}>
+            Forecasting will use real budget history once enough pay cycles have
+            been completed.
+          </Text>
         </View>
         <Spacer height={40} />
       </BottomSheet>

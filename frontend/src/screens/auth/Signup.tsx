@@ -29,6 +29,12 @@ const Signup = () => {
         currency: 'USD',
       });
       if (response.success) {
+        if (response.data?.devVerificationCode) {
+          Alert.alert(
+            'Dev verification code',
+            String(response.data.devVerificationCode),
+          );
+        }
         router.replace(
           `/auth/OtpVerification?from=SignUp&email=${encodeURIComponent(
             values.email,

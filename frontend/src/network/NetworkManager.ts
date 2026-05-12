@@ -72,7 +72,7 @@ const handleAuthenticationError = (
   }
   logout();
   router?.navigate({
-    pathname: '/auth/Login',
+    pathname: '/auth/SignIn',
     params: {isFromSignup: true},
   });
 };
@@ -172,7 +172,8 @@ export const callApi = async ({
     //   "\n──────────────────────────────"
     // );
 
-    const responseData: ApiResponse = response.data;
+    const responseData: ApiResponse =
+      response.status === 204 ? {success: true, status: 204} : response.data;
 
     if (
       responseData?.message ===
@@ -224,7 +225,9 @@ export const callApi = async ({
         },
       });
 
-      if (axiosError.response?.status === 401) {
+      const currentToken = useAuthStore.getState().token;
+      const isAuthEndpoint = endPoint.startsWith('/auth/');
+      if (axiosError.response?.status === 401 && currentToken && !isAuthEndpoint) {
         const serverError = axiosError.response.data as ApiResponse;
 
         // Handle authentication errors by logging out user

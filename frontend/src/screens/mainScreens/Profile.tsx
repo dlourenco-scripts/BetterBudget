@@ -41,6 +41,7 @@ const Profile = () => {
   );
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [profileImage, setProfileImage] = useState('');
   const [savingsGoal, setSavingsGoal] = useState('');
   const [draftSavingsGoal, setDraftSavingsGoal] = useState('');
   const [showEditSavingsModal, setShowEditSavingsModal] = useState(false);
@@ -51,13 +52,22 @@ const Profile = () => {
   const customInputBg = isDarkMode ? '#0F1115' : undefined;
   const updateUserData = useAuthStore(state => state.updateUserData);
 
+  const getReminderDate = (timeValue?: string) => {
+    const [hours = '9', minutes = '0'] = String(timeValue || '09:00').split(':');
+    const date = new Date();
+    date.setHours(Number(hours), Number(minutes), 0, 0);
+    return date;
+  };
+
   const applyUser = useCallback((user: any) => {
     setFullName(user?.fullName || '');
     setEmail(user?.email || '');
+    setProfileImage(user?.profileImage || '');
     setSelectedGoal(user?.goalType === 'debt' ? 'debt' : 'savings');
     setSavingsGoal(String(Number(user?.savingsGoal || 0)));
     setDraftSavingsGoal(String(Number(user?.savingsGoal || 0)));
     setIsFullAccess(Boolean(user?.paydayReminderEnabled));
+    setSelectedTime(getReminderDate(user?.paydayReminderTime));
   }, []);
 
   useFocusEffect(
@@ -90,6 +100,11 @@ const Profile = () => {
     }
     if (date) {
       setSelectedTime(date);
+      updateProfile({
+        paydayReminderTime: `${String(date.getHours()).padStart(2, '0')}:${String(
+          date.getMinutes(),
+        ).padStart(2, '0')}`,
+      });
     }
   };
 
@@ -119,16 +134,53 @@ const Profile = () => {
           paddingBottom: heightPixel(24),
           paddingHorizontal: widthPixel(20),
         }}>
-        <Image
-          source={appImages.UserDemoimg}
+        <View
           style={{
             height: heightPixel(110),
             width: heightPixel(110),
+            borderRadius: heightPixel(55),
             position: 'absolute',
             top: hp(-6),
             alignSelf: 'center',
+            backgroundColor: color.profileBackground,
+            borderWidth: 1,
+            borderColor: color.dividerColor,
           }}
-        />
+        >
+          {profileImage ? (
+            <Image
+              source={{uri: profileImage}}
+              style={{
+                height: heightPixel(110),
+                width: heightPixel(110),
+                borderRadius: heightPixel(55),
+              }}
+            />
+          ) : null}
+        </View>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={async () => {
+            const {pickImage} = await import('@/services/helpingMethods');
+            const uri = await pickImage({
+              mode: 'gallery',
+              allowsEditing: true,
+              aspect: [1, 1],
+              quality: 0.8,
+            });
+            if (uri) {
+              setProfileImage(uri);
+              updateProfile({profileImage: uri});
+            }
+          }}
+          style={{
+            alignSelf: 'center',
+            marginTop: heightPixel(10),
+          }}>
+          <Text size={13} color={color.primary} variant="medium">
+            {profileImage ? 'Change Photo' : 'Add Photo'}
+          </Text>
+        </TouchableOpacity>
         <Text
           size={24}
           variant="semibold"

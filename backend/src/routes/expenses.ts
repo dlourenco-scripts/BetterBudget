@@ -6,6 +6,12 @@ import db from '../db';
 
 const router = Router({mergeParams: true});
 
+const dateField = (field: string) =>
+  body(field).isISO8601({strict: true}).withMessage(`${field} must be a valid date.`);
+
+const optionalDateField = (field: string) =>
+  body(field).optional().isISO8601({strict: true}).withMessage(`${field} must be a valid date.`);
+
 type ExpenseRow = {
   id: string;
   budget_id: string;
@@ -79,7 +85,7 @@ router.post(
   body('amount').isFloat({gt: 0}),
   body('type').isString().notEmpty(),
   body('frequency').optional().isString(),
-  body('dueDate').isString().notEmpty(),
+  dateField('dueDate'),
   body('category').isString().notEmpty(),
   body('priority').optional().isInt({min: 1}),
   body('notes').optional().isString(),
@@ -130,7 +136,7 @@ router.patch(
   body('amount').optional().isFloat({gt: 0}),
   body('type').optional().isString(),
   body('frequency').optional().isString(),
-  body('dueDate').optional().isString(),
+  optionalDateField('dueDate'),
   body('category').optional().isString(),
   body('priority').optional().isInt({min: 1}),
   body('notes').optional().isString(),

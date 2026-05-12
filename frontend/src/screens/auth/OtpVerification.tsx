@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useEffect, useState} from 'react';
 import {Alert, Image, Platform, View} from 'react-native';
 import {router, useLocalSearchParams} from 'expo-router';
 import {
@@ -23,9 +23,54 @@ const OtpVerification = () => {
   const isFromSignUp = from === 'SignUp';
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(30);
   const setToken = useAuthStore(state => state.setToken);
   const setRefreshToken = useAuthStore(state => state.setRefreshToken);
   const setUserData = useAuthStore(state => state.setUserData);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) {
+      return;
+    }
+
+    const timer = setTimeout(
+      () => setResendCooldown(current => Math.max(0, current - 1)),
+      1000,
+    );
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const handleResendCode = async () => {
+    if (!emailAddress || resendCooldown > 0) {
+      return;
+    }
+
+    setResending(true);
+    try {
+      const response = isFromSignUp
+        ? await authApi.resendVerification({email: emailAddress})
+        : await authApi.forgotPassword({email: emailAddress});
+      if (response.success) {
+        setOtp('');
+        setResendCooldown(30);
+        Alert.alert(
+          response.data?.devVerificationCode
+            ? 'Dev verification code'
+            : 'Code sent',
+          response.data?.devVerificationCode
+            ? String(response.data.devVerificationCode)
+            : response.message || 'A new code was sent.',
+        );
+        return;
+      }
+      Alert.alert('Unable to resend code', response.message || 'Please try again.');
+    } catch (error: any) {
+      Alert.alert('Unable to resend code', error?.message || 'Please try again.');
+    } finally {
+      setResending(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!emailAddress) {
@@ -91,6 +136,21 @@ const OtpVerification = () => {
       <Spacer height={40} />
       <Button title="Verify Code" onPress={handleSubmit} isLoading={loading} />
       <Spacer height={20} />
+      <Button
+        title={
+          resendCooldown > 0
+            ? `Resend Code (${resendCooldown}s)`
+            : 'Resend Code'
+        }
+        onPress={handleResendCode}
+        isLoading={resending}
+        disabled={resendCooldown > 0}
+        variant="outline"
+        titleStyle={{
+          color: resendCooldown > 0 ? color.disabled : color.primary,
+        }}
+      />
+      <Spacer height={10} />
       <Button
         title={isFromSignUp ? 'Back to sign up options' : 'Back to Log In'}
         onPress={() =>

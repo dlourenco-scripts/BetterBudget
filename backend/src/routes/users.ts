@@ -10,6 +10,7 @@ function toUser(row: any) {
     id: row.id,
     email: row.email,
     fullName: row.full_name || '',
+    profileImage: row.profile_image || '',
     verified: row.verified,
     currency: row.currency,
     theme: row.theme,
@@ -26,7 +27,7 @@ function toUser(row: any) {
 router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
   try {
     const result = await db.query(
-      'SELECT id, email, full_name, verified, currency, theme, language, payday_reminder_enabled, payday_reminder_time, subscription_plan, onboarding_complete, goal_type, savings_goal FROM users WHERE id = $1',
+      'SELECT id, email, full_name, profile_image, verified, currency, theme, language, payday_reminder_enabled, payday_reminder_time, subscription_plan, onboarding_complete, goal_type, savings_goal FROM users WHERE id = $1',
       [req.userId]
     );
     const user = result.rows[0];
@@ -46,11 +47,12 @@ router.patch(
   authMiddleware,
   body('currency').optional().isString(),
   body('fullName').optional().isString(),
+  body('profileImage').optional().isString(),
   body('theme').optional().isString(),
   body('language').optional().isString(),
   body('paydayReminderEnabled').optional().isBoolean(),
   body('paydayReminderTime').optional().isString(),
-  body('goalType').optional().isString(),
+  body('goalType').optional().isIn(['save', 'debt']),
   body('savingsGoal').optional().isFloat({min: 0}),
   body('onboardingComplete').optional().isBoolean(),
   async (req: AuthRequest, res) => {
@@ -62,6 +64,7 @@ router.patch(
     const fieldMapping: Record<string, string> = {
       currency: 'currency',
       fullName: 'full_name',
+      profileImage: 'profile_image',
       theme: 'theme',
       language: 'language',
       paydayReminderEnabled: 'payday_reminder_enabled',
@@ -97,7 +100,7 @@ router.patch(
       await db.query(query, values);
 
       const result = await db.query(
-        'SELECT id, email, full_name, verified, currency, theme, language, payday_reminder_enabled, payday_reminder_time, subscription_plan, onboarding_complete, goal_type, savings_goal FROM users WHERE id = $1',
+        'SELECT id, email, full_name, profile_image, verified, currency, theme, language, payday_reminder_enabled, payday_reminder_time, subscription_plan, onboarding_complete, goal_type, savings_goal FROM users WHERE id = $1',
         [req.userId]
       );
       const user = result.rows[0];

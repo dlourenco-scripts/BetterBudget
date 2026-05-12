@@ -55,6 +55,12 @@ const budgetSelect = `
   FROM budgets
 `;
 
+const dateField = (field: string) =>
+  body(field).isISO8601({strict: true}).withMessage(`${field} must be a valid date.`);
+
+const optionalDateField = (field: string) =>
+  body(field).optional().isISO8601({strict: true}).withMessage(`${field} must be a valid date.`);
+
 function toBudget(row: BudgetRow) {
   return {
     id: row.id,
@@ -87,12 +93,29 @@ function addDays(dateValue: string, days: number) {
 
 function addMonths(dateValue: string, months: number) {
   const date = new Date(`${dateValue}T00:00:00`);
+  const originalDay = date.getDate();
+  date.setDate(1);
   date.setMonth(date.getMonth() + months);
+  const lastDayOfTargetMonth = new Date(
+    date.getFullYear(),
+    date.getMonth() + 1,
+    0,
+  ).getDate();
+  date.setDate(Math.min(originalDay, lastDayOfTargetMonth));
   return date.toISOString().slice(0, 10);
 }
 
 function isWithinDateRange(dateValue: string, startDate: string, endDate: string) {
   return dateValue >= startDate && dateValue <= endDate;
+}
+
+function getMonthDifference(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  return (
+    (end.getFullYear() - start.getFullYear()) * 12 +
+    (end.getMonth() - start.getMonth())
+  );
 }
 
 function getExpenseCycleDate(expense: any, cycleStart: string, cycleEnd: string) {
@@ -129,14 +152,25 @@ function getExpenseCycleDate(expense: any, cycleStart: string, cycleEnd: string)
     return null;
   }
 
-  let occurrenceDate = originalDueDate;
-  for (let i = 0; i < 240 && occurrenceDate < cycleStart; i++) {
-    occurrenceDate = addMonths(occurrenceDate, monthStep);
-  }
+  const monthDifference = getMonthDifference(originalDueDate, cycleStart);
+  const firstPossibleOccurrence =
+    monthDifference <= 0
+      ? originalDueDate
+      : addMonths(
+          originalDueDate,
+          Math.floor(monthDifference / monthStep) * monthStep,
+        );
 
-  return isWithinDateRange(occurrenceDate, cycleStart, cycleEnd)
-    ? occurrenceDate
-    : null;
+  const occurrenceDates = [
+    firstPossibleOccurrence,
+    addMonths(firstPossibleOccurrence, monthStep),
+  ];
+
+  return (
+    occurrenceDates.find(dateValue =>
+      isWithinDateRange(dateValue, cycleStart, cycleEnd),
+    ) || null
+  );
 }
 
 function getCycleEnd(startDate: string, cycleType: string) {
@@ -266,7 +300,7 @@ async function ensureBudgetCycles(budget: ReturnType<typeof toBudget>, count = 6
 async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: CycleRow) {
   const cycleStart = toIsoDate(cycle.cycle_start);
   const cycleEnd = toIsoDate(cycle.cycle_end);
-  const [incomes, expenses] = await Promise.all([
+  const [incomes, expenses, debts] = await Promise.all([
     db.query('SELECT * FROM incomes WHERE budget_id = $1 AND received_date BETWEEN $2 AND $3 ORDER BY received_date ASC, created_at ASC', [
       budget.id,
       cycleStart,
@@ -275,6 +309,9 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
     db.query('SELECT * FROM expenses WHERE budget_id = $1 AND due_date <= $2 ORDER BY due_date ASC, created_at ASC', [
       budget.id,
       cycleEnd,
+    ]),
+    db.query('SELECT COALESCE(SUM(minimum_payment), 0) AS total FROM debts WHERE budget_id = $1', [
+      budget.id,
     ]),
   ]);
 
@@ -296,21 +333,32 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
       return cycleDueDate ? {...toExpense(row), dueDate: cycleDueDate} : null;
     })
     .filter(Boolean);
-  const extraIncome = extraIncomeItems.reduce((sum, item) => sum + item.amount, 0);
-  const baseIncome = budget.netPay;
-  const totalIncome = baseIncome + extraIncome;
-  const totalExpenses = expenseItems.reduce((sum, item) => sum + item.amount, 0);
   const previousCycle = await db.query<CycleRow>(
     `SELECT carry_over_out FROM budget_cycles
      WHERE budget_id = $1 AND cycle_index = $2`,
     [budget.id, cycle.cycle_index - 1],
   );
   const carryOverIn = Number(previousCycle.rows[0]?.carry_over_out || 0);
+  const extraIncome = extraIncomeItems.reduce((sum, item) => sum + item.amount, 0);
+  const savedBaseIncome = Number(cycle.base_income || 0);
+  const baseIncome = savedBaseIncome > 0 ? savedBaseIncome : budget.netPay;
+  const totalIncome = baseIncome + extraIncome + carryOverIn;
+  const totalExpenses = expenseItems.reduce((sum, item) => sum + item.amount, 0);
   const carryOverOut = Math.max(0, Number(cycle.carry_over_out || 0));
-  const remainingBeforeGoal = totalIncome + carryOverIn - totalExpenses;
+  const remainingBeforeGoal = totalIncome - totalExpenses;
+  const savedGoalAllocation = Math.max(0, Number(cycle.goal_allocation || 0));
+  const autoFillGoalAllocation = Math.max(
+    0,
+    remainingBeforeGoal - carryOverOut - budget.reserveAmount,
+  );
+  const debtPaymentTotal = Math.max(0, Number(debts.rows[0]?.total || 0));
+  const manualOrDebtAllocation =
+    !budget.autoFillEnabled && cycle.status === 'planned'
+      ? debtPaymentTotal
+      : savedGoalAllocation;
   const goalAllocation = budget.autoFillEnabled
-    ? Math.max(0, remainingBeforeGoal - budget.reserveAmount)
-    : 0;
+    ? Math.max(autoFillGoalAllocation, debtPaymentTotal)
+    : manualOrDebtAllocation;
   const remainingAmount = remainingBeforeGoal - goalAllocation - carryOverOut;
   const spendableAmount = Math.max(0, remainingAmount);
 
@@ -361,6 +409,24 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
         createdAt: cycle.created_at,
         updatedAt: cycle.updated_at,
       },
+      ...(carryOverIn > 0
+        ? [
+            {
+              id: `${budget.id}-carry-over-${cycle.cycle_index}`,
+              budgetId: budget.id,
+              name: 'Carry Over',
+              amount: carryOverIn,
+              type: 'Carry Over',
+              frequency: budget.cycleType,
+              receivedDate: cycleStart,
+              category: 'Carry Over',
+              notes: 'From previous cycle',
+              isPrimary: false,
+              createdAt: cycle.created_at,
+              updatedAt: cycle.updated_at,
+            },
+          ]
+        : []),
       ...extraIncomeItems,
     ],
     expenses: expenseItems,
@@ -423,12 +489,12 @@ router.post(
   body('name').isString().notEmpty(),
   body('netPay').isFloat({gt: 0}),
   body('cycleType').isString().notEmpty(),
-  body('cycleStart').isString().notEmpty(),
-  body('cycleEnd').isString().notEmpty(),
+  dateField('cycleStart'),
+  dateField('cycleEnd'),
   body('reserveAmount').optional().isFloat({min: 0}),
   body('currentSavings').optional().isFloat({min: 0}),
   body('savingsGoal').optional().isFloat({min: 0}),
-  body('goalType').optional().isString(),
+  body('goalType').optional().isIn(['save', 'debt']),
   body('autoFillEnabled').optional().isBoolean(),
   async (req: AuthRequest, res) => {
     const errors = validationResult(req);
@@ -501,12 +567,12 @@ router.patch(
   body('name').optional().isString(),
   body('netPay').optional().isFloat({gt: 0}),
   body('cycleType').optional().isString(),
-  body('cycleStart').optional().isString(),
-  body('cycleEnd').optional().isString(),
+  optionalDateField('cycleStart'),
+  optionalDateField('cycleEnd'),
   body('reserveAmount').optional().isFloat({min: 0}),
   body('currentSavings').optional().isFloat({min: 0}),
   body('savingsGoal').optional().isFloat({min: 0}),
-  body('goalType').optional().isString(),
+  body('goalType').optional().isIn(['save', 'debt']),
   body('autoFillEnabled').optional().isBoolean(),
   body('status').optional().isString(),
   async (req: AuthRequest, res) => {
@@ -550,11 +616,36 @@ router.patch(
         `UPDATE budgets SET ${assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = $${values.length} RETURNING *`,
         values,
       );
+      const updatedBudget = toBudget(result.rows[0]);
+
+      if (req.body.netPay !== undefined) {
+        await db.query(
+          `UPDATE budget_cycles
+           SET base_income = $1,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE budget_id = $2`,
+          [updatedBudget.netPay, updatedBudget.id],
+        );
+      }
+
+      if (req.body.autoFillEnabled === false) {
+        const debtTotal = await db.query<{total: string}>(
+          'SELECT COALESCE(SUM(minimum_payment), 0) AS total FROM debts WHERE budget_id = $1',
+          [updatedBudget.id],
+        );
+        await db.query(
+          `UPDATE budget_cycles
+           SET goal_allocation = $1,
+             updated_at = CURRENT_TIMESTAMP
+           WHERE budget_id = $2`,
+          [Number(debtTotal.rows[0]?.total || 0), updatedBudget.id],
+        );
+      }
 
       return res.status(200).json({
         success: true,
         message: 'Budget updated.',
-        data: toBudget(result.rows[0]),
+        data: updatedBudget,
       });
     } catch (error) {
       console.error('Update budget error:', error);
@@ -582,6 +673,8 @@ router.patch(
   '/:budgetId/cycles/:cycleId',
   authMiddleware,
   body('carryOverOut').optional().isFloat({min: 0}),
+  body('baseIncome').optional().isFloat({gt: 0}),
+  body('goalAllocation').optional().isFloat({min: 0}),
   async (req: AuthRequest, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -603,21 +696,38 @@ router.patch(
         return res.status(404).json({success: false, message: 'Budget cycle not found.'});
       }
 
-      const carryOverOut = Number(req.body.carryOverOut || 0);
+      const carryOverOut =
+        req.body.carryOverOut === undefined
+          ? Number(cycle.carry_over_out || 0)
+          : Number(req.body.carryOverOut || 0);
+      const goalAllocation =
+        req.body.goalAllocation === undefined
+          ? Number(cycle.goal_allocation || 0)
+          : Number(req.body.goalAllocation || 0);
       const availableToCarry =
-        Number(cycle.remaining_amount || 0) + Number(cycle.carry_over_out || 0);
+        Number(cycle.remaining_amount || 0) +
+        Number(cycle.goal_allocation || 0) +
+        Number(cycle.carry_over_out || 0);
       if (carryOverOut > availableToCarry) {
         return res.status(400).json({
           success: false,
-          message: 'Carry over cannot exceed the current remaining amount.',
+          message: 'Carry over cannot exceed remaining plus the amount set to save.',
         });
       }
 
       await db.query(
         `UPDATE budget_cycles
-         SET carry_over_out = $1, updated_at = CURRENT_TIMESTAMP
-         WHERE id = $2`,
-        [carryOverOut, cycle.id],
+         SET carry_over_out = $1,
+           base_income = COALESCE($2, base_income),
+           goal_allocation = $3,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4`,
+        [
+          carryOverOut,
+          req.body.baseIncome === undefined ? null : Number(req.body.baseIncome),
+          goalAllocation,
+          cycle.id,
+        ],
       );
 
       const cycles = await loadCycles(budget);

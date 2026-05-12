@@ -1,14 +1,15 @@
 import React, {useState} from 'react';
-import {StyleSheet, TouchableOpacity, View} from 'react-native';
-import dayjs from 'dayjs';
-import {AntDesign} from '@expo/vector-icons';
-import {colors} from '@/constants/colors';
+import {View} from 'react-native';
 import {useThemeColor} from '@/hooks/useThemeColor';
-import Spacer from '../common/Spacer';
 import Text from '../common/Text';
 
-const ProgressBar = () => {
+type ProgressBarProps = {
+  progressPercent?: number;
+};
+
+const ProgressBar = ({progressPercent = 0}: ProgressBarProps) => {
   const color = useThemeColor();
+  const safePercent = Math.max(0, Math.min(100, progressPercent));
 
   return (
     <View>
@@ -37,11 +38,12 @@ const ProgressBar = () => {
             borderRadius: 13,
             paddingHorizontal: 5,
             minWidth: 60,
+            width: `${Math.max(8, safePercent)}%`,
             paddingVertical: 2,
             backgroundColor: color.primary,
           }}>
           <Text size={13} color={color.white} variant="italic">
-            05%
+            {Math.round(safePercent)}%
           </Text>
         </View>
       </View>

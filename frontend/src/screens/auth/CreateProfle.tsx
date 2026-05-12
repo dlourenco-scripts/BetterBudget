@@ -47,6 +47,7 @@ const CreateProfle = () => {
     try {
       const response = await userApi.update({
         fullName,
+        profileImage: image || '',
         goalType: selectedGoal === 'debt' ? 'debt' : 'save',
         savingsGoal: selectedGoal === 'savings' ? Number(savingsGoal || 0) : 0,
         onboardingComplete: true,

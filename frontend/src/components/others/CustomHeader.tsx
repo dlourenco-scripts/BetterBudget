@@ -1,21 +1,13 @@
 import React, {useEffect, useState} from 'react';
-import {
-  Animated,
-  Image,
-  StyleSheet,
-  Switch,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import {LinearGradient} from 'expo-linear-gradient';
+import {Alert, Image, StyleSheet, Switch, TouchableOpacity, View} from 'react-native';
 import {router} from 'expo-router';
 import {AntDesign, Feather, Ionicons} from '@expo/vector-icons';
 import {appImages} from '@/constants/assets';
-import {fonts} from '@/constants/fonts';
 import {useWalkthrough} from '@/context/WalkthroughProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {heightPixel, widthPixel} from '@/services/responsive';
+import {useAuthStore} from '@/store';
 import {BottomSheet} from '../common/BottomSheet';
 import Button from '../common/Button';
 import InfoTooltip from '../common/InfoTooltip';
@@ -34,12 +26,17 @@ interface CustomHeaderProps {
   onAddBudgetPress?: () => void;
   budgets?: Budget[];
   primaryBudgetId?: string;
+  selectedBudgetId?: string;
   onPrimaryBudgetChange?: (budgetId: string) => void;
+  onBudgetSelect?: (budgetId: string) => void;
   currentSavings?: number;
   savingsGoal?: number;
+  currentIncome?: number;
+  activeCycleId?: string;
   autoFillEnabled?: boolean;
   onAutoFillChange?: (enabled: boolean) => void;
   onSavingsUpdate?: (values: {currentSavings?: number; savingsGoal?: number}) => void;
+  onIncomeUpdate?: (amount: number, applyToAll: boolean) => void;
 }
 
 const CustomHeader: React.FC<CustomHeaderProps> = ({
@@ -47,24 +44,28 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   onAddBudgetPress,
   budgets = [],
   primaryBudgetId,
+  selectedBudgetId,
   onPrimaryBudgetChange,
+  onBudgetSelect,
   currentSavings = 0,
   savingsGoal = 0,
+  currentIncome = 0,
+  activeCycleId,
   autoFillEnabled = false,
   onAutoFillChange,
   onSavingsUpdate,
+  onIncomeUpdate,
 }) => {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
-  const {currentStep, isStepVisible} = useWalkthrough();
+  const {currentStep} = useWalkthrough();
+  const profileImage = useAuthStore(state => state.userData?.profileImage);
   const [selectedBudget, setSelectedBudget] = useState('Home Budget');
 
   // Custom colors for specific bottom sheets in dark mode
   const customSheetBg = isDarkMode ? '#171A21' : undefined;
   const customInputBg = isDarkMode ? '#0F1115' : undefined;
-  const [expandFlame, setExpandFlame] = React.useState(false);
-  const slideAnim = React.useRef(new Animated.Value(0)).current;
   const [ShowBudgetSection, setShowBudgetSection] = useState(false);
   const [showBudgetList, setShowBudgetList] = useState(false);
   const [showIncomeInfo, setShowIncomeInfo] = useState(false);
@@ -84,11 +85,11 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
 
   useEffect(() => {
     const activeBudget =
-      budgets.find(budget => budget.id === primaryBudgetId) || budgets[0];
+      budgets.find(budget => budget.id === selectedBudgetId) || budgets[0];
     if (activeBudget) {
       setSelectedBudget(activeBudget.name);
     }
-  }, [budgets, primaryBudgetId]);
+  }, [budgets, selectedBudgetId]);
 
   useEffect(() => {
     setIsEnabled(autoFillEnabled);
@@ -100,12 +101,16 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
     );
   }, [currentSavings, savingsGoal, sheetMode, showEditSavingsSheet]);
 
+  useEffect(() => {
+    if (showEditIncomeSheet) {
+      setIncomeAmount(String(currentIncome || ''));
+      setApplyToAllIncome(false);
+    }
+  }, [currentIncome, showEditIncomeSheet]);
+
   // Determine if the current selected budget is the primary budget
   const currentBudget = budgets.find(b => b.name === selectedBudget);
-  const isPrimaryBudget =
-    budgets.length === 1 ||
-    (currentBudget && currentBudget.id === primaryBudgetId);
-  const canSelectPrimary = budgets.length > 1;
+  const isPrimaryBudget = currentBudget && currentBudget.id === primaryBudgetId;
 
   // Open BudgetList sheet when walkthrough reaches step 6
   useEffect(() => {
@@ -151,38 +156,33 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
     },
   ];
 
-  const toggleFlame = () => {
-    const newValue = !expandFlame;
-    setExpandFlame(newValue);
-
-    Animated.timing(slideAnim, {
-      toValue: newValue ? 1 : 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  const translateY = slideAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [-20, 0],
-  });
-
   return (
     <>
       <View style={[styles.container, {backgroundColor: color.bg}]}>
         <TouchableOpacity
           onPress={() => router.navigate('/mainScreens/Settings')}>
-          <Image source={appImages.UserDemoimg} style={styles.profileImage} />
+          {profileImage ? (
+            <Image source={{uri: profileImage}} style={styles.profileImage} />
+          ) : (
+            <View
+              style={[
+                styles.profileImage,
+                styles.avatarFallback,
+                {backgroundColor: color.tabBackground},
+              ]}>
+              <Ionicons name="person-outline" size={22} color={color.tabicon} />
+            </View>
+          )}
         </TouchableOpacity>
         <View style={styles.titleContainer}>
           <TouchableOpacity
             onPress={() => {
-              if (canSelectPrimary && currentBudget) {
+              if (currentBudget && currentBudget.id !== primaryBudgetId) {
                 onPrimaryBudgetChange?.(currentBudget.id);
               }
             }}
             activeOpacity={0.6}
-            disabled={!canSelectPrimary}>
+            disabled={!currentBudget || currentBudget.id === primaryBudgetId}>
             {isPrimaryBudget ? (
               <AntDesign
                 name="star"
@@ -217,18 +217,6 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
           </TouchableOpacity>
         </View>
         <View style={styles.rightContainer}>
-          <TouchableOpacity style={styles.badgeContainer} onPress={toggleFlame}>
-            <View
-              style={[
-                styles.flameWrapper,
-                {backgroundColor: color.headerIconBg},
-              ]}>
-              <Image source={appImages.Flame} style={{height: 20, width: 20}} />
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>15</Text>
-              </View>
-            </View>
-          </TouchableOpacity>
           <TouchableOpacity
             activeOpacity={0.8}
             style={{
@@ -270,103 +258,6 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         />
       </View>
 
-      {expandFlame && (
-        <>
-          <TouchableOpacity
-            activeOpacity={1}
-            onPress={toggleFlame}
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              bottom: 0,
-              zIndex: 999,
-            }}
-          />
-          <Animated.View
-            style={[
-              styles.expandedSection,
-              {
-                opacity: slideAnim,
-                transform: [{translateY}],
-              },
-            ]}>
-            {/* Triangular Pointer */}
-            <View style={styles.trianglePointer} />
-            <LinearGradient
-              colors={['#FF6E00', '#D6CB64', '#FF6E00']}
-              style={styles.gradientContainer}
-              start={{x: 1.2, y: 0.2}}
-              end={{x: 0.2, y: 1.2}}>
-              <View style={styles.headerRow}>
-                <View
-                  style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
-                  <Image
-                    source={appImages.Flame}
-                    style={{height: 24, width: 24}}
-                  />
-                  <Text
-                    size={20}
-                    variant="semibold"
-                    color="#FFF"
-                    style={{fontFamily: fonts.PoltawskiNowy}}>
-                    Streaks (Per Cycle)
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.streakRow}>
-                <Text size={13} variant="regular" color="#FFF">
-                  App Open Streak
-                </Text>
-                <View
-                  style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
-                  <Text size={16} variant="regular" color="#FFF">
-                    5
-                  </Text>
-                  <Image
-                    source={appImages.Flame}
-                    style={{height: 14, width: 14}}
-                  />
-                </View>
-              </View>
-
-              <View style={styles.streakRow}>
-                <Text size={13} variant="regular" color="#FFF">
-                  Savings Streak
-                </Text>
-                <View
-                  style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
-                  <Text size={16} variant="regular" color="#FFF">
-                    5
-                  </Text>
-                  <Image
-                    source={appImages.Flame}
-                    style={{height: 14, width: 14}}
-                  />
-                </View>
-              </View>
-
-              <View style={[styles.streakRow, {borderBottomWidth: 0}]}>
-                <Text size={13} variant="regular" color="#FFF">
-                  Debt Paydown Streak
-                </Text>
-                <View
-                  style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
-                  <Text size={16} variant="regular" color="#FFF">
-                    5
-                  </Text>
-                  <Image
-                    source={appImages.Flame}
-                    style={{height: 14, width: 14}}
-                  />
-                </View>
-              </View>
-            </LinearGradient>
-          </Animated.View>
-        </>
-      )}
       <BottomSheet
         visible={ShowBudgetSection}
         onClose={() => setShowBudgetSection(false)}
@@ -375,8 +266,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         backgroundColor={color.inputField}>
         <View style={{gap: widthPixel(20)}}>
           {budgets.map(budget => {
-            const isBudgetPrimary =
-              budgets.length === 1 || budget.id === primaryBudgetId;
+            const isBudgetPrimary = budget.id === primaryBudgetId;
             return (
               <TouchableOpacity
                 key={budget.id}
@@ -392,18 +282,19 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                 onPress={() => {
                   setShowBudgetSection(false);
                   setSelectedBudget(budget.name);
-                  onPrimaryBudgetChange?.(budget.id);
+                  onBudgetSelect?.(budget.id);
                 }}>
                 <View
                   style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
                   <TouchableOpacity
                     activeOpacity={0.7}
-                    onPress={() => {
-                      if (budgets.length > 1) {
+                    onPress={(event: any) => {
+                      event.stopPropagation?.();
+                      if (budget.id !== primaryBudgetId) {
                         onPrimaryBudgetChange?.(budget.id);
                       }
                     }}
-                    disabled={budgets.length <= 1}>
+                    disabled={budget.id === primaryBudgetId}>
                     {isBudgetPrimary ? (
                       <AntDesign name="star" size={20} color={color.primary} />
                     ) : (
@@ -636,7 +527,13 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         <Button
           title="Update"
           onPress={() => {
-            // Handle update logic
+            const amount = Number(incomeAmount || 0);
+            if (!activeCycleId || !amount || amount <= 0) {
+              Alert.alert('Invalid income', 'Enter a valid income amount.');
+              return;
+            }
+
+            onIncomeUpdate?.(amount, applyToAllIncome);
             setShowEditIncomeSheet(false);
           }}
         />
@@ -667,6 +564,10 @@ const styles = StyleSheet.create({
     borderRadius: 40,
     resizeMode: 'contain',
   },
+  avatarFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -678,66 +579,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: widthPixel(17),
     marginLeft: 'auto',
-  },
-  flameWrapper: {
-    position: 'relative',
-    borderRadius: 50,
-    padding: 6,
-  },
-  badgeContainer: {
-    position: 'relative',
-  },
-  badge: {
-    position: 'absolute',
-    top: -2,
-    right: -4,
-    backgroundColor: '#F48024',
-    borderRadius: 10,
-    paddingHorizontal: 3,
-    paddingVertical: 1,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 8,
-    fontWeight: '600',
-  },
-  expandedSection: {
-    position: 'absolute',
-    top: heightPixel(85),
-    left: 0,
-    right: 0,
-    zIndex: 1000,
-  },
-  trianglePointer: {
-    position: 'absolute',
-    top: -15,
-    right: widthPixel(68),
-    width: 0,
-    height: 0,
-    backgroundColor: 'transparent',
-    borderStyle: 'solid',
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderBottomWidth: 15,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderBottomColor: '#FF8C42',
-    zIndex: 1001,
-  },
-  gradientContainer: {
-    borderRadius: 16,
-    padding: 10,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  streakRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 5,
   },
 });

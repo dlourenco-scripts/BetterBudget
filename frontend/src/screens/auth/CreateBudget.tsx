@@ -23,11 +23,12 @@ const CreateBudget = () => {
   const [budgetName, setBudgetName] = useState('');
   const [reserveAmount, setReserveAmount] = useState('');
   const [currentSavings, setCurrentSavings] = useState('');
-  const {fromHome, fromBudgetCreation, fromCopyExpenses} =
+  const {fromHome, fromBudgetCreation, fromCopyExpenses, sourceBudgetId} =
     useLocalSearchParams<{
       fromHome?: string;
       fromBudgetCreation?: string;
       fromCopyExpenses?: string;
+      sourceBudgetId?: string;
     }>();
   const showBackArrow = fromHome === 'true';
   const isBudgetCreation = fromBudgetCreation !== 'false';
@@ -110,6 +111,7 @@ const CreateBudget = () => {
             params: {
               fromBudgetCreation: isBudgetCreation ? 'true' : 'false',
               fromCopyExpenses: fromCopyExpenses,
+              sourceBudgetId: sourceBudgetId,
               budgetName: budgetName.trim(),
               reserveAmount: reserveAmount || '0',
               currentSavings: currentSavings || '0',

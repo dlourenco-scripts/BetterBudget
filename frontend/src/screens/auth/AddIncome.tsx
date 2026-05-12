@@ -51,8 +51,16 @@ const getCycleEnd = (startDate: string, frequency: string) => {
 };
 
 const AddIncome = () => {
-  const {fromHome, fromBudgetCreation, fromCopyExpenses, budgetId, budgetName, reserveAmount, currentSavings} =
-    useLocalSearchParams<{
+  const {
+    fromHome,
+    fromBudgetCreation,
+    fromCopyExpenses,
+    budgetId,
+    budgetName,
+    reserveAmount,
+    currentSavings,
+    sourceBudgetId,
+  } = useLocalSearchParams<{
       fromHome?: string;
       fromBudgetCreation?: string;
       fromCopyExpenses?: string;
@@ -60,6 +68,7 @@ const AddIncome = () => {
       budgetName?: string;
       reserveAmount?: string;
       currentSavings?: string;
+      sourceBudgetId?: string;
     }>();
   const [selectedIncomeType, setSelectedIncomeType] =
     useState<string>('Fixed Income');
@@ -85,6 +94,7 @@ const AddIncome = () => {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const iconButtonBg = isDark ? '#7A7F8C' : '#FFFFFF';
+  const isCreatingBudget = fromBudgetCreation === 'true';
 
   // Function to clear all form data
   const clearForm = (resetForm?: () => void) => {
@@ -99,6 +109,54 @@ const AddIncome = () => {
     }
   };
 
+  const copyBudgetItems = async (sourceId: string, targetId: string) => {
+    const sourceResponse = await budgetApi.get(sourceId);
+
+    if (!sourceResponse.success || !sourceResponse.data) {
+      throw new Error(sourceResponse.message || 'Unable to copy budget items.');
+    }
+
+    const sourceBudget = sourceResponse.data;
+    const expenses = sourceBudget.expenses || [];
+    const debts = sourceBudget.debts || [];
+
+    const expenseResults = await Promise.all(
+      expenses.map((expense: any) =>
+        budgetApi.createExpense(targetId, {
+          name: expense.name,
+          amount: Number(expense.amount || 0),
+          type: expense.type || 'Recurring',
+          frequency: expense.frequency || 'Monthly',
+          dueDate: expense.dueDate,
+          category: expense.category || 'General',
+          priority: Number(expense.priority || 1),
+          notes: expense.notes || '',
+        }),
+      ),
+    );
+
+    const debtResults = await Promise.all(
+      debts.map((debt: any) =>
+        budgetApi.createDebt(targetId, {
+          name: debt.name,
+          balance: Number(debt.balance || debt.remainingBalance || 0),
+          minimumPayment: Number(debt.minimumPayment || 0),
+          interestRate: Number(debt.interestRate || 0),
+          priority: Number(debt.priority || 1),
+          status: debt.status || 'active',
+        }),
+      ),
+    );
+
+    const failedCopy = [...expenseResults, ...debtResults].find(
+      result => !result.success,
+    );
+
+    if (failedCopy) {
+      throw new Error(failedCopy.message || 'Unable to copy budget items.');
+    }
+  };
+
   const handleFormSubmit = async (values: {
     incomeSourceText: string;
     incomeAmount: string;
@@ -108,7 +166,7 @@ const AddIncome = () => {
     try {
       let targetBudgetId = budgetId;
 
-      if (fromBudgetCreation === 'true') {
+      if (isCreatingBudget) {
         const response = await budgetApi.create({
           name: budgetName || 'Home Budget',
           netPay: Number(values.incomeAmount),
@@ -142,7 +200,7 @@ const AddIncome = () => {
         receivedDate: values.selectedDate,
         category: values.incomeSourceText,
         notes: '',
-        isPrimary: fromBudgetCreation === 'true',
+        isPrimary: isCreatingBudget,
       });
 
       if (!incomeResponse.success) {
@@ -150,7 +208,23 @@ const AddIncome = () => {
         return;
       }
 
-      if (fromHome === 'true') {
+      if (
+        fromCopyExpenses === 'true' &&
+        sourceBudgetId &&
+        sourceBudgetId !== targetBudgetId
+      ) {
+        await copyBudgetItems(sourceBudgetId, targetBudgetId);
+        router.navigate('/(tabs)/HomeScreen');
+      } else if (isCreatingBudget) {
+        router.push({
+          pathname: '/auth/RecurringExpenses',
+          params: {
+            fromBudgetCreation: fromBudgetCreation || '',
+            fromCopyExpenses: fromCopyExpenses || '',
+            budgetId: targetBudgetId,
+          },
+        });
+      } else if (fromHome === 'true') {
         router.back();
       } else {
         router.push({
@@ -182,9 +256,11 @@ const AddIncome = () => {
         title={
           isEditMode
             ? 'Update Income'
-            : fromHome
-              ? 'Add Additional Income'
-              : 'Add Income'
+            : isCreatingBudget
+              ? 'Add Income'
+              : fromHome
+                ? 'Add Additional Income'
+                : 'Add Income'
         }
         titleStyle={{
           color: color.black,
@@ -435,7 +511,13 @@ const AddIncome = () => {
             <FullFlex />
             <Spacer height={20} />
             <Button
-              title={isEditMode ? 'Update' : fromHome ? 'Update' : 'Add'}
+              title={
+                isEditMode
+                  ? 'Update'
+                  : fromHome && !isCreatingBudget
+                    ? 'Update'
+                    : 'Add'
+              }
               onPress={handleSubmit}
               isLoading={saving}
             />

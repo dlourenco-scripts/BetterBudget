@@ -31,6 +31,8 @@ export const authApi = {
     callApiPromise(Method.POST, api.auth.login, body),
   verifyEmail: (body: {email: string; code: string}) =>
     callApiPromise(Method.POST, api.auth.verifyEmail, body),
+  resendVerification: (body: {email: string}) =>
+    callApiPromise(Method.POST, api.auth.resendVerification, body),
   forgotPassword: (body: {email: string}) =>
     callApiPromise(Method.POST, api.auth.forgotPassword, body),
   resetPassword: (body: {email: string; code: string; password: string}) =>
@@ -61,10 +63,14 @@ export const budgetApi = {
     callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/incomes`, body),
   createExpense: (budgetId: string, body: any) =>
     callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/expenses`, body),
+  updateExpense: (budgetId: string, expenseId: string, body: any) =>
+    callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}/expenses/${expenseId}`, body),
   deleteExpense: (budgetId: string, expenseId: string) =>
     callApiPromise(Method.DELETE, `${api.budgets.root}/${budgetId}/expenses/${expenseId}`),
   createDebt: (budgetId: string, body: any) =>
     callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/debts`, body),
+  updateDebt: (budgetId: string, debtId: string, body: any) =>
+    callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}/debts/${debtId}`, body),
   deleteDebt: (budgetId: string, debtId: string) =>
     callApiPromise(Method.DELETE, `${api.budgets.root}/${budgetId}/debts/${debtId}`),
 };
