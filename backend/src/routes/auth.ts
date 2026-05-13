@@ -3,6 +3,7 @@ import {body, validationResult} from 'express-validator';
 import {v4 as uuidv4} from 'uuid';
 import db from '../db';
 import {hashPassword, comparePassword, createToken} from '../utils/auth';
+import {sendPasswordResetEmail, sendVerificationEmail} from '../utils/email';
 
 const router = Router();
 const CODE_EXPIRATION_MINUTES = 15;
@@ -81,9 +82,7 @@ router.post(
           [hashPassword(password), currency, verificationCode, createCodeExpiration(), existingUser.rows[0].id],
         );
 
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`DEV VERIFICATION CODE for ${email}: ${verificationCode}`);
-        }
+        await sendVerificationEmail(email, verificationCode);
 
         return res.status(200).json({
           success: true,
@@ -112,9 +111,7 @@ router.post(
         [id, email, passwordHash, false, currency, verificationCode, createCodeExpiration()]
       );
 
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`DEV VERIFICATION CODE for ${email}: ${verificationCode}`);
-      }
+      await sendVerificationEmail(email, verificationCode);
 
       return res.status(201).json({
         success: true,
@@ -280,9 +277,7 @@ router.post(
         [verificationCode, createCodeExpiration(), user.id],
       );
 
-      if (process.env.NODE_ENV !== 'production') {
-        console.log(`DEV VERIFICATION CODE for ${email}: ${verificationCode}`);
-      }
+      await sendVerificationEmail(email, verificationCode);
 
       return res.status(200).json({
         success: true,
@@ -317,7 +312,7 @@ router.post(
           'UPDATE users SET reset_code = $1, reset_code_expires_at = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3',
           [resetCode, createCodeExpiration(), user.id]
         );
-        console.log(`Password reset code for ${email}: ${resetCode}`);
+        await sendPasswordResetEmail(email, resetCode);
       }
 
       return res.status(200).json({

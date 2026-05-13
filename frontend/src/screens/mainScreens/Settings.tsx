@@ -133,7 +133,7 @@ const Settings = () => {
         gap: widthPixel(12),
         borderRadius: 12,
         backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
-        paddingVertical: heightPixel(30),
+        paddingVertical: heightPixel(21),
         paddingHorizontal: widthPixel(16),
         shadowColor: color.bg === '#121212' ? '#000000' : color.border,
         shadowOffset: {
@@ -192,7 +192,7 @@ const Settings = () => {
         data={profileOptions}
         renderItem={renderSettingItem}
         keyExtractor={item => item.id}
-        ItemSeparatorComponent={() => <Spacer height={heightPixel(20)} />}
+        ItemSeparatorComponent={() => <Spacer height={heightPixel(10)} />}
         // contentContainerStyle={{
         //   paddingBottom: heightPixel(20),
         // }}

@@ -1,224 +1,182 @@
-import React, {useState} from 'react';
-import {
-  FlatList,
-  Image,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import React, {useMemo, useState} from 'react';
+import {Image, StyleSheet, TouchableOpacity, View} from 'react-native';
 import dayjs from 'dayjs';
-import {router} from 'expo-router';
-import {AntDesign} from '@expo/vector-icons';
+import {useLocalSearchParams} from 'expo-router';
+import {AntDesign, Feather} from '@expo/vector-icons';
 import {
-  Button,
-  FullFlex,
   Header,
   Spacer,
   Text,
-  TextInput,
   Wrapper,
 } from '@/components';
-import GradientExpandableCard from '@/components/others/GradientExpandableButton';
 import {appImages} from '@/constants/assets';
 import {colors} from '@/constants/colors';
 import {useCurrency} from '@/context/CurrencyProvider';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 
-const expensesData: {id: string; title: string; value: string}[] = [];
+type SimExpense = {
+  id: string;
+  name: string;
+  amount: number;
+  dueDate?: string;
+  category?: string;
+  frequency?: string;
+};
 
 const SimulateBudget = () => {
   const color = useThemeColor();
   const {currencySymbol} = useCurrency();
-  const [date, setDate] = useState(dayjs('2024-12-15'));
+  const {income: incomeParam, expenses: expensesParam} = useLocalSearchParams<{
+    income?: string;
+    expenses?: string;
+  }>();
+  const [monthOffset, setMonthOffset] = useState(0);
+
+  const income = Number(incomeParam || 0);
+  const expenses = useMemo<SimExpense[]>(() => {
+    try {
+      return expensesParam ? JSON.parse(String(expensesParam)) : [];
+    } catch {
+      return [];
+    }
+  }, [expensesParam]);
+
+  const simulatedMonth = dayjs().startOf('month').add(monthOffset, 'month');
+  const totalExpenses = expenses.reduce(
+    (sum, expense) => sum + Number(expense.amount || 0),
+    0,
+  );
+  const remaining = income - totalExpenses;
 
   const goPrev = () => {
-    setDate(prev => prev.subtract(1, 'month'));
+    setMonthOffset(previous => Math.max(0, previous - 1));
   };
 
   const goNext = () => {
-    setDate(prev => prev.add(1, 'month'));
+    setMonthOffset(previous => Math.min(3, previous + 1));
   };
 
-  const renderExpenseItem = ({
-    item,
-  }: {
-    item: {id: string; title: string; value: string};
-  }) => (
-    <GradientExpandableCard
-      title={item.title}
-      titleStyle={{
-        fontSize: fontPixel(18),
-        fontFamily: 'medium',
-        fontWeight: '500',
-      }}
-      value={item.value}
-      valueStyle={{
-        fontSize: fontPixel(18),
-        fontFamily: 'medium',
-        fontWeight: '500',
-      }}
-      customGradientColors={{
-        default: ['#F7EBDF', '#F7EBDF'],
-      }}
-      customBorderColor={color.simulatebudgetborder}
-    />
-  );
-
   return (
-    <Wrapper>
+    <Wrapper keyboardProps={{stickyHeaderIndices: [0], bounces: false}}>
       <Header
-        title={'Simulated Budget'}
+        title="Monthly Simulation"
         titleStyle={{
           color: color.black,
           fontSize: fontPixel(22),
           fontFamily: 'medium',
           fontWeight: '500',
         }}
+        canGoBack
       />
-      <Spacer height={heightPixel(20)} />
-      <View
-        style={{
-          backgroundColor: color.simulatebudgetbg,
-          borderWidth: 1,
-          borderColor: color.simulatebudgetborder,
-          borderRadius: 12,
-          paddingHorizontal: 10,
-          paddingVertical: 15,
-        }}>
-        <View
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 10,
-          }}>
-          <View>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 5,
-              }}>
-              <Image
-                source={appImages.Arrowimg}
-                style={{
-                  height: heightPixel(15),
-                  width: widthPixel(15),
-                  resizeMode: 'contain',
-                  tintColor: color.white,
-                }}
-              />
-              <Text size={16} color={color.black} variant="semibold">
-                Total remaining
-              </Text>
-            </View>
-            <Spacer height={10} />
-            <Text size={18} variant="semibold" color={color.primary}>
-              {currencySymbol}0.00
-            </Text>
-          </View>
-          <View>
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 5,
-              }}>
-              <Image
-                source={appImages.ArrowDownimg}
-                style={{
-                  height: heightPixel(15),
-                  width: widthPixel(15),
-                  resizeMode: 'contain',
-                  tintColor: color.white,
-                }}
-              />
-              <Text size={16} color={color.black} variant="medium">
-                Total expenses
-              </Text>
-            </View>
-            <Spacer height={10} />
-            <Text
-              size={18}
-              variant="semibold"
-              color={color.black}
-              style={{textAlign: 'right'}}>
-              {currencySymbol}0.00
-            </Text>
-          </View>
-        </View>
-      </View>
-      <Spacer height={20} />
+      <Spacer height={heightPixel(16)} />
+
       <View style={styles.row}>
         <Text size={16} color={color.black} variant="semibold">
-          Pay Date
+          Month
         </Text>
-        <TouchableOpacity onPress={goPrev} style={styles.arrowBtn}>
+        <TouchableOpacity
+          onPress={goPrev}
+          disabled={monthOffset === 0}
+          style={[styles.arrowBtn, {opacity: monthOffset === 0 ? 0.35 : 1}]}>
           <AntDesign name="left" size={14} color={color.dateText} />
         </TouchableOpacity>
         <Text style={[styles.dateText, {color: color.primary}]}>
-          {date.format('MMMM, DD, YYYY')}
+          {simulatedMonth.format('MMMM YYYY')}
         </Text>
-        <TouchableOpacity onPress={goNext} style={styles.arrowBtn}>
+        <TouchableOpacity
+          onPress={goNext}
+          disabled={monthOffset === 3}
+          style={[styles.arrowBtn, {opacity: monthOffset === 3 ? 0.35 : 1}]}>
           <AntDesign name="right" size={14} color={color.dateText} />
         </TouchableOpacity>
       </View>
-      <Spacer height={20} />
-      <Text size={15} color={color.black} variant="medium">
+
+      <Spacer height={heightPixel(16)} />
+      <View
+        style={[
+          styles.summaryCard,
+          {backgroundColor: color.inputField, borderColor: color.primary},
+        ]}>
+        <View style={styles.summaryRow}>
+          <View>
+            <View style={styles.labelRow}>
+              <Image
+                source={appImages.Arrowimg}
+                style={[styles.summaryIcon, {tintColor: color.primary}]}
+              />
+              <Text size={14} color={color.black} variant="semibold">
+                Monthly Income
+              </Text>
+            </View>
+            <Text size={20} variant="semibold" color={color.primary}>
+              {currencySymbol}{income.toFixed(2)}
+            </Text>
+          </View>
+          <View style={{alignItems: 'flex-end'}}>
+            <View style={styles.labelRow}>
+              <Feather name="credit-card" size={15} color="#D94343" />
+              <Text size={14} color={color.black} variant="semibold">
+                Expenses
+              </Text>
+            </View>
+            <Text size={20} variant="semibold" color="#D94343">
+              {currencySymbol}{totalExpenses.toFixed(2)}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.remainingDivider} />
+        <View style={styles.summaryRow}>
+          <Text size={15} color={color.black} variant="semibold">
+            Monthly Remaining
+          </Text>
+          <Text
+            size={22}
+            variant="semibold"
+            color={remaining < 0 ? '#D94343' : color.primary}>
+            {currencySymbol}{remaining.toFixed(2)}
+          </Text>
+        </View>
+      </View>
+
+      <Spacer height={heightPixel(20)} />
+      <Text size={16} color={color.black} variant="semibold">
         Expenses
       </Text>
-      <View>
-        <FlatList
-          scrollEnabled={false}
-          data={expensesData}
-          keyExtractor={item => item.id}
-          renderItem={renderExpenseItem}
-          ListEmptyComponent={
-            <Text size={14} color={color.tabicon}>
-              No simulated expenses yet.
-            </Text>
-          }
-        />
-      </View>
-      <Spacer height={20} />
-      <Text size={15} color={color.black} variant="medium">
-        Total Debt Loan/other payments
-      </Text>
-      <View>
-        <FlatList
-          scrollEnabled={false}
-          data={expensesData}
-          keyExtractor={item => item.id}
-          renderItem={renderExpenseItem}
-          ListEmptyComponent={
-            <Text size={14} color={color.tabicon}>
-              No simulated debt payments yet.
-            </Text>
-          }
-        />
-      </View>
+      <Spacer height={heightPixel(8)} />
+      {expenses.length > 0 ? (
+        <View style={{gap: heightPixel(8)}}>
+          {expenses.map(expense => (
+            <View
+              key={expense.id}
+              style={[styles.expenseRow, {backgroundColor: color.inputField}]}>
+              <View style={{flex: 1}}>
+                <Text size={15} variant="semibold" color={color.black} numberOfLines={1}>
+                  {expense.name}
+                </Text>
+                <Text size={12} color={color.tabicon} numberOfLines={1}>
+                  {[expense.category, expense.frequency].filter(Boolean).join(' • ')}
+                </Text>
+              </View>
+              <Text size={15} variant="semibold" color={color.black}>
+                {currencySymbol}{Number(expense.amount || 0).toFixed(2)}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text size={14} color={color.tabicon}>
+          No simulated expenses yet.
+        </Text>
+      )}
     </Wrapper>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-    color: '#000',
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    // justifyContent: 'center',
   },
   arrowBtn: {
     padding: 5,
@@ -226,8 +184,45 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 16,
     color: colors.light.dateText,
-    fontWeight: 'medium',
+    fontWeight: '500',
     marginHorizontal: 12,
+  },
+  summaryCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: widthPixel(14),
+    paddingVertical: heightPixel(14),
+    gap: heightPixel(12),
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: widthPixel(12),
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: widthPixel(5),
+    marginBottom: heightPixel(6),
+  },
+  summaryIcon: {
+    height: heightPixel(15),
+    width: widthPixel(15),
+    resizeMode: 'contain',
+  },
+  remainingDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  expenseRow: {
+    minHeight: heightPixel(58),
+    borderRadius: 10,
+    paddingHorizontal: widthPixel(12),
+    paddingVertical: heightPixel(10),
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: widthPixel(10),
   },
 });
 

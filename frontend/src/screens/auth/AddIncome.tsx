@@ -26,11 +26,13 @@ import {
   Wrapper,
 } from '@/components';
 import {appImages, AppSvgs} from '@/constants/assets';
+import {useNotifications} from '@/context/NotificationProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {addIncomeValidationSchema} from '@/services/validators';
 import {budgetApi} from '@/network/api';
+import {useAuthStore} from '@/store';
 
 const getCycleEnd = (startDate: string, frequency: string) => {
   const date = new Date(`${startDate}T00:00:00`);
@@ -72,7 +74,7 @@ const AddIncome = () => {
     }>();
   const [selectedIncomeType, setSelectedIncomeType] =
     useState<string>('Fixed Income');
-  const [selectedFrequency, setSelectedFrequency] = useState('Monthly');
+  const [selectedFrequency, setSelectedFrequency] = useState('Weekly');
   const [selectedDate, setSelectedDate] = useState('');
   const [showCalendarSheet, setShowCalendarSheet] = useState(false);
   const [showFrequencySheet, setShowFrequencySheet] = useState(false);
@@ -91,6 +93,8 @@ const AddIncome = () => {
   const toggleSwitch = () => setIsEnabled(previousState => !previousState);
 
   const color = useThemeColor();
+  const {addNotification} = useNotifications();
+  const userGoalType = useAuthStore(state => state.userData?.goalType);
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
   const iconButtonBg = isDark ? '#7A7F8C' : '#FFFFFF';
@@ -101,7 +105,7 @@ const AddIncome = () => {
     setIncomeSourceText('');
     setIncomeAmount('');
     setSelectedIncomeType('Fixed Income');
-    setSelectedFrequency('Monthly');
+    setSelectedFrequency('Weekly');
     setSelectedDate('');
     setIsEnabled(true);
     if (resetForm) {
@@ -175,7 +179,7 @@ const AddIncome = () => {
           cycleEnd: getCycleEnd(values.selectedDate, selectedFrequency),
           reserveAmount: Number(reserveAmount || 0),
           currentSavings: Number(currentSavings || 0),
-          goalType: 'save',
+          goalType: userGoalType === 'debt' ? 'debt' : 'save',
           autoFillEnabled: isEnabled,
         });
 
@@ -192,6 +196,7 @@ const AddIncome = () => {
         return;
       }
 
+      const isManualAdditionalIncome = fromHome === 'true' && !isEnabled;
       const incomeResponse = await budgetApi.createIncome(targetBudgetId, {
         name: values.incomeSourceText,
         amount: Number(values.incomeAmount),
@@ -199,7 +204,7 @@ const AddIncome = () => {
         frequency: selectedFrequency,
         receivedDate: values.selectedDate,
         category: values.incomeSourceText,
-        notes: '',
+        notes: isManualAdditionalIncome ? 'manual_additional_income_pending' : '',
         isPrimary: isCreatingBudget,
       });
 
@@ -208,13 +213,36 @@ const AddIncome = () => {
         return;
       }
 
+      if (fromHome === 'true') {
+        const incomeId = incomeResponse.data?.id;
+        await addNotification({
+          type: 'additional_income',
+          action: isManualAdditionalIncome ? 'open_additional_income' : 'view',
+          dedupeKey: incomeId
+            ? `additional-income-${incomeId}`
+            : `additional-income-${targetBudgetId}-${values.incomeSourceText}-${values.selectedDate}`,
+          title: 'Additional income available',
+          message: isManualAdditionalIncome
+            ? `${values.incomeSourceText} is available to add to this budget cycle.`
+            : `${values.incomeSourceText} was added to this budget cycle.`,
+          payload: {
+            budgetId: targetBudgetId,
+            incomeId,
+            amount: Number(values.incomeAmount),
+          },
+        });
+      }
+
       if (
         fromCopyExpenses === 'true' &&
         sourceBudgetId &&
         sourceBudgetId !== targetBudgetId
       ) {
         await copyBudgetItems(sourceBudgetId, targetBudgetId);
-        router.navigate('/(tabs)/HomeScreen');
+        router.navigate({
+          pathname: '/(tabs)/HomeScreen',
+          params: {selectedBudgetId: targetBudgetId},
+        });
       } else if (isCreatingBudget) {
         router.push({
           pathname: '/auth/RecurringExpenses',

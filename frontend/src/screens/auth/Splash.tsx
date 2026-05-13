@@ -6,16 +6,24 @@ import {appImages} from '@/constants/assets';
 import {colors} from '@/constants/colors';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {heightPixel, widthPixel} from '@/services/responsive';
+import {useAuthStore} from '@/store';
 
 const Splash = ({fontLoading}: {fontLoading: boolean}) => {
+  const isLoggedIn = useAuthStore(state => state.isLoggedIn);
+  const token = useAuthStore(state => state.token);
+  const hasHydrated = useAuthStore.persist.hasHydrated();
+
   useEffect(() => {
-    {
-      !fontLoading &&
-        setTimeout(() => {
-          router.replace('/auth/SignIn');
-        }, 3000);
+    if (fontLoading || !hasHydrated) {
+      return;
     }
-  }, [fontLoading]);
+
+    const timer = setTimeout(() => {
+      router.replace(isLoggedIn && token ? '/(tabs)/HomeScreen' : '/auth/SignIn');
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [fontLoading, hasHydrated, isLoggedIn, token]);
 
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';

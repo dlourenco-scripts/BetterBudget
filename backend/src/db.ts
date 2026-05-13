@@ -134,6 +134,7 @@ const initializeSchema = async () => {
         status TEXT NOT NULL DEFAULT 'planned',
         base_income DECIMAL(10,2) NOT NULL DEFAULT 0,
         extra_income DECIMAL(10,2) NOT NULL DEFAULT 0,
+        manual_additional_income DECIMAL(10,2) NOT NULL DEFAULT 0,
         total_income DECIMAL(10,2) NOT NULL DEFAULT 0,
         total_expenses DECIMAL(10,2) NOT NULL DEFAULT 0,
         reserve_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
@@ -202,6 +203,11 @@ const initializeSchema = async () => {
     await client.query(`
       ALTER TABLE budget_cycles
       ADD COLUMN IF NOT EXISTS carry_over_out DECIMAL(10,2) NOT NULL DEFAULT 0
+    `);
+
+    await client.query(`
+      ALTER TABLE budget_cycles
+      ADD COLUMN IF NOT EXISTS manual_additional_income DECIMAL(10,2) NOT NULL DEFAULT 0
     `);
 
     await client.query(`

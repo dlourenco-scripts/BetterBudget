@@ -22,6 +22,8 @@ const WalkthroughContext = createContext<WalkthroughContextType | undefined>(
   undefined,
 );
 
+export const WALKTHROUGH_TOTAL_STEPS = 9;
+
 export const WalkthroughProvider: React.FC<{children: React.ReactNode}> = ({
   children,
 }) => {
@@ -42,7 +44,7 @@ export const WalkthroughProvider: React.FC<{children: React.ReactNode}> = ({
   }, []);
 
   const nextStep = useCallback(() => {
-    if (currentStep === 8) {
+    if (currentStep === WALKTHROUGH_TOTAL_STEPS) {
       // Last step
       skipWalkthrough();
     } else {

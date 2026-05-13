@@ -23,6 +23,7 @@ import {appImages} from '@/constants/assets';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {userApi} from '@/network/api';
+import {budgetApi} from '@/network/api';
 import {
   fontPixel,
   heightPixel,
@@ -87,6 +88,23 @@ const Profile = () => {
     if (response.success && response.data) {
       updateUserData(response.data);
       applyUser(response.data);
+    }
+  };
+
+  const updateGoalType = async (goalType: 'save' | 'debt') => {
+    setSelectedGoal(goalType === 'debt' ? 'debt' : 'savings');
+    await updateProfile({goalType});
+
+    try {
+      const budgetsResponse = await budgetApi.list();
+      const budgetList = budgetsResponse.data || [];
+      await Promise.all(
+        budgetList.map((budget: any) =>
+          budgetApi.update(budget.id, {goalType}),
+        ),
+      );
+    } catch (error) {
+      console.error('Unable to update budget goals:', error);
     }
   };
 
@@ -308,8 +326,7 @@ const Profile = () => {
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => {
-              setSelectedGoal('savings');
-              updateProfile({goalType: 'save'});
+              updateGoalType('save');
             }}
             style={{
               backgroundColor:
@@ -340,8 +357,7 @@ const Profile = () => {
           <TouchableOpacity
             activeOpacity={0.85}
             onPress={() => {
-              setSelectedGoal('debt');
-              updateProfile({goalType: 'debt'});
+              updateGoalType('debt');
             }}
             style={{
               backgroundColor:

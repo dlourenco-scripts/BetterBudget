@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import {Platform} from 'react-native';
 
 const defaultBaseUrl = Platform.select({
@@ -5,8 +6,23 @@ const defaultBaseUrl = Platform.select({
   default: 'http://localhost:4000/api/v1',
 });
 
-export const BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL || defaultBaseUrl;
-export const SOCKETS_URL = BASE_URL.replace('http://', 'ws://');
+function getExpoHost() {
+  const hostUri =
+    Constants.expoConfig?.hostUri ||
+    (Constants as any).manifest2?.extra?.expoGo?.debuggerHost ||
+    (Constants as any).manifest?.debuggerHost;
+
+  return typeof hostUri === 'string' ? hostUri.split(':')[0] : '';
+}
+
+const expoHost = getExpoHost();
+const localBaseUrl = expoHost ? `http://${expoHost}:4000/api/v1` : defaultBaseUrl;
+
+export const BASE_URL =
+  process.env.EXPO_PUBLIC_API_URL ||
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  localBaseUrl;
+export const SOCKETS_URL = BASE_URL.replace(/^http/, 'ws');
 
 export const api = {
   auth: {

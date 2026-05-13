@@ -1,0 +1,19 @@
+version: 1.0
+runtime: nodejs20
+build:
+  commands:
+    pre-build:
+      - npm --prefix backend ci
+    build:
+      - npm --prefix backend run build
+run:
+  runtime-version: 20
+  command: npm --prefix backend start
+  network:
+    port: 4000
+    env: PORT
+  env:
+    - name: NODE_ENV
+      value: production
+    - name: PORT
+      value: "4000"

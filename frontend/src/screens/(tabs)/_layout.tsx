@@ -1,9 +1,10 @@
 import React from 'react';
-import {Image, Platform} from 'react-native';
+import {Image, Platform, View} from 'react-native';
 // import {Image} from 'react-native';
 import {Tabs} from 'expo-router';
 import {Text} from '@/components';
 import {appImages} from '@/constants/assets';
+import {useNotifications} from '@/context/NotificationProvider';
 // import {appImages} from '@/constants/assets';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
@@ -13,6 +14,7 @@ export default function TabsLayout() {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
+  const {unreadCount} = useNotifications();
 
   const activeColor = isDarkMode ? color.primary : color.black;
   const inactiveColor = isDarkMode ? '#666666' : color.tabiconFocus;
@@ -99,15 +101,36 @@ export default function TabsLayout() {
         options={{
           title: 'Notification',
           tabBarIcon: ({focused}) => (
-            <Image
-              source={appImages.Notificationimg}
-              style={{
-                width: widthPixel(24),
-                height: heightPixel(24),
-                resizeMode: 'contain',
-                tintColor: focused ? activeColor : inactiveColor,
-              }}
-            />
+            <View>
+              <Image
+                source={appImages.Notificationimg}
+                style={{
+                  width: widthPixel(24),
+                  height: heightPixel(24),
+                  resizeMode: 'contain',
+                  tintColor: focused ? activeColor : inactiveColor,
+                }}
+              />
+              {unreadCount > 0 && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    top: -8,
+                    right: -10,
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 9,
+                    backgroundColor: '#E53935',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 4,
+                  }}>
+                  <Text size={10} variant="semibold" color="#FFFFFF">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </View>
           ),
           tabBarLabel: ({focused}) => (
             <Text color={focused ? activeColor : inactiveColor} size={14}>

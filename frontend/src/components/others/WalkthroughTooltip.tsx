@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import Tooltip from 'react-native-walkthrough-tooltip';
 import {appImages} from '@/constants/assets';
-import {useWalkthrough} from '@/context/WalkthroughProvider';
+import {useWalkthrough, WALKTHROUGH_TOTAL_STEPS} from '@/context/WalkthroughProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {heightPixel, widthPixel} from '@/services/responsive';
@@ -49,7 +49,7 @@ const WalkthroughTooltip: React.FC<WalkthroughTooltipProps> = ({
   const textColor = isDarkMode ? '#FFFFFF' : colors.black;
 
   const isVisible = isStepVisible(stepNumber);
-  const isLastStep = stepNumber === 8;
+  const isLastStep = stepNumber === WALKTHROUGH_TOTAL_STEPS;
 
   // New state for delayed visibility
   const [shouldShowTooltip, setShouldShowTooltip] = React.useState(

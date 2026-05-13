@@ -37,6 +37,7 @@ interface CustomHeaderProps {
   onAutoFillChange?: (enabled: boolean) => void;
   onSavingsUpdate?: (values: {currentSavings?: number; savingsGoal?: number}) => void;
   onIncomeUpdate?: (amount: number, applyToAll: boolean) => void;
+  onAddFromSavings?: (amount: number) => void;
 }
 
 const CustomHeader: React.FC<CustomHeaderProps> = ({
@@ -55,6 +56,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   onAutoFillChange,
   onSavingsUpdate,
   onIncomeUpdate,
+  onAddFromSavings,
 }) => {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
@@ -80,6 +82,8 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   const [sheetMode, setSheetMode] = useState<'edit' | 'goal'>('edit');
   const [showEditIncomeSheet, setShowEditIncomeSheet] = useState(false);
   const [incomeAmount, setIncomeAmount] = useState('');
+  const [addFromSavingsAmount, setAddFromSavingsAmount] = useState('');
+  const [incomeSheetMode, setIncomeSheetMode] = useState<'edit' | 'savings'>('edit');
   const [showApplyToAllInfo, setShowApplyToAllInfo] = useState(false);
   const [applyToAllIncome, setApplyToAllIncome] = useState(false);
 
@@ -104,6 +108,8 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   useEffect(() => {
     if (showEditIncomeSheet) {
       setIncomeAmount(String(currentIncome || ''));
+      setAddFromSavingsAmount('');
+      setIncomeSheetMode('edit');
       setApplyToAllIncome(false);
     }
   }, [currentIncome, showEditIncomeSheet]);
@@ -112,12 +118,9 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   const currentBudget = budgets.find(b => b.name === selectedBudget);
   const isPrimaryBudget = currentBudget && currentBudget.id === primaryBudgetId;
 
-  // Open BudgetList sheet when walkthrough reaches step 6
+  // Move the walkthrough to Insights for the analysis tools section.
   useEffect(() => {
-    if (currentStep === 6) {
-      setShowBudgetList(true);
-    }
-    if (currentStep === 7) {
+    if (currentStep === 9) {
       setTimeout(() => {
         router.navigate('/(tabs)/InsightScreen');
         setShowBudgetList(false); // Close the sheet if open
@@ -174,48 +177,53 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             </View>
           )}
         </TouchableOpacity>
-        <View style={styles.titleContainer}>
-          <TouchableOpacity
-            onPress={() => {
-              if (currentBudget && currentBudget.id !== primaryBudgetId) {
-                onPrimaryBudgetChange?.(currentBudget.id);
-              }
-            }}
-            activeOpacity={0.6}
-            disabled={!currentBudget || currentBudget.id === primaryBudgetId}>
-            {isPrimaryBudget ? (
-              <AntDesign
-                name="star"
-                size={20}
-                color={color.primary}
-                style={{marginRight: 5}}
-              />
-            ) : (
-              <Ionicons
-                name="star-outline"
-                size={20}
-                color={color.tabicon}
-                style={{marginRight: 5}}
-              />
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => setShowBudgetSection(true)}
-            style={{flexDirection: 'row', alignItems: 'center'}}>
-            <Text size={20} variant="semibold" color={color.primary}>
-              {selectedBudget}
-            </Text>
-            <Ionicons
-              name="chevron-down"
-              size={18}
-              color={color.primary}
-              style={{
-                marginLeft: 5,
+        <WalkthroughTooltip
+          stepNumber={7}
+          content="Use this budget selector to switch budgets. Tap the star to choose the main budget that loads first when you open the app."
+          placement="bottom">
+          <View style={styles.titleContainer}>
+            <TouchableOpacity
+              onPress={() => {
+                if (currentBudget && currentBudget.id !== primaryBudgetId) {
+                  onPrimaryBudgetChange?.(currentBudget.id);
+                }
               }}
-            />
-          </TouchableOpacity>
-        </View>
+              activeOpacity={0.6}
+              disabled={!currentBudget || currentBudget.id === primaryBudgetId}>
+              {isPrimaryBudget ? (
+                <AntDesign
+                  name="star"
+                  size={20}
+                  color={color.primary}
+                  style={{marginRight: 5}}
+                />
+              ) : (
+                <Ionicons
+                  name="star-outline"
+                  size={20}
+                  color={color.tabicon}
+                  style={{marginRight: 5}}
+                />
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setShowBudgetSection(true)}
+              style={{flexDirection: 'row', alignItems: 'center'}}>
+              <Text size={20} variant="semibold" color={color.primary}>
+                {selectedBudget}
+              </Text>
+              <Ionicons
+                name="chevron-down"
+                size={18}
+                color={color.primary}
+                style={{
+                  marginLeft: 5,
+                }}
+              />
+            </TouchableOpacity>
+          </View>
+        </WalkthroughTooltip>
         <View style={styles.rightContainer}>
           <TouchableOpacity
             activeOpacity={0.8}
@@ -230,33 +238,38 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         </View>
       </View>
       <Spacer height={20} />
-      <View style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
-        <TouchableOpacity
-          activeOpacity={0.8}
-          onPress={() => setShowIncomeInfo(true)}>
-          <Image
-            source={appImages.Aboutimg}
+      <WalkthroughTooltip
+        stepNumber={6}
+        content="Auto Fill uses your goal and reserve to place leftover money toward savings or debt. Turn it off when you want to assign money manually."
+        placement="bottom">
+        <View style={{flexDirection: 'row', alignItems: 'center', gap: 5}}>
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setShowIncomeInfo(true)}>
+            <Image
+              source={appImages.Aboutimg}
+              style={{
+                height: heightPixel(18),
+                width: widthPixel(18),
+                resizeMode: 'contain',
+              }}
+            />
+          </TouchableOpacity>
+          <Text size={14} color={color.black}>
+            Auto Fill
+          </Text>
+          <Switch
+            trackColor={{false: '#DADADA', true: color.primary}}
+            thumbColor="#fff"
+            ios_backgroundColor="#DADADA"
+            onValueChange={toggleSwitch}
+            value={isEnabled}
             style={{
-              height: heightPixel(18),
-              width: widthPixel(18),
-              resizeMode: 'contain',
+              transform: [{scaleX: 0.7}, {scaleY: 0.7}],
             }}
           />
-        </TouchableOpacity>
-        <Text size={14} color={color.black}>
-          Auto Fill
-        </Text>
-        <Switch
-          trackColor={{false: '#DADADA', true: color.primary}}
-          thumbColor="#fff"
-          ios_backgroundColor="#DADADA"
-          onValueChange={toggleSwitch}
-          value={isEnabled}
-          style={{
-            transform: [{scaleX: 0.7}, {scaleY: 0.7}],
-          }}
-        />
-      </View>
+        </View>
+      </WalkthroughTooltip>
 
       <BottomSheet
         visible={ShowBudgetSection}
@@ -264,20 +277,28 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         title="Budgets"
         hideTitleLine={true}
         backgroundColor={color.inputField}>
-        <View style={{gap: widthPixel(20)}}>
+        <View style={{gap: widthPixel(10)}}>
           {budgets.map(budget => {
             const isBudgetPrimary = budget.id === primaryBudgetId;
+            const isBudgetSelected = budget.id === selectedBudgetId;
             return (
               <TouchableOpacity
                 key={budget.id}
                 style={{
                   backgroundColor: isDarkMode ? '#0F1115' : color.tabBackground,
-                  borderRadius: heightPixel(12),
-                  paddingHorizontal: widthPixel(15),
-                  paddingVertical: heightPixel(20),
+                  borderRadius: heightPixel(10),
+                  paddingHorizontal: widthPixel(12),
+                  paddingVertical: heightPixel(12),
                   flexDirection: 'row',
                   alignItems: 'center',
                   justifyContent: 'space-between',
+                  borderWidth: isBudgetSelected ? 1 : 0,
+                  borderColor: color.primary,
+                  shadowColor: isBudgetSelected ? color.primary : 'transparent',
+                  shadowOffset: {width: 0, height: 0},
+                  shadowOpacity: isBudgetSelected ? 0.45 : 0,
+                  shadowRadius: isBudgetSelected ? 6 : 0,
+                  elevation: isBudgetSelected ? 4 : 0,
                 }}
                 onPress={() => {
                   setShowBudgetSection(false);
@@ -296,11 +317,11 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                     }}
                     disabled={budget.id === primaryBudgetId}>
                     {isBudgetPrimary ? (
-                      <AntDesign name="star" size={20} color={color.primary} />
+                      <AntDesign name="star" size={16} color={color.primary} />
                     ) : (
                       <Ionicons
                         name="star-outline"
-                        size={20}
+                        size={16}
                         color={color.tabicon}
                       />
                     )}
@@ -317,14 +338,14 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                   }}
                   style={{
                     backgroundColor: isDarkMode ? '#0F1115' : color.bg,
-                    padding: widthPixel(5),
+                    padding: widthPixel(3),
                     borderRadius: heightPixel(50),
                   }}>
                   <Image
                     source={appImages.Deleteimg}
                     style={{
-                      width: widthPixel(25),
-                      height: heightPixel(25),
+                      width: widthPixel(13),
+                      height: heightPixel(13),
                       resizeMode: 'contain',
                       tintColor: color.black,
                     }}
@@ -362,42 +383,35 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
         <View style={{gap: widthPixel(20), marginBottom: heightPixel(40)}}>
           {budgetData.map((item, index) =>
             index === 0 ? (
-              <WalkthroughTooltip
+              <TouchableOpacity
                 key={item.id}
-                stepNumber={6}
-                title="Share Budget"
-                content="See how changes affect your budget before making them. Adjust your income or expenses (like adding a new bill or changing your mortgage payment) and instantly see how it affects your monthly budget."
-                placement="top"
-                displayDelay={500}>
-                <TouchableOpacity
-                  style={{
-                    width: '80%',
-                    backgroundColor: color.bg,
-                    borderRadius: heightPixel(12),
-                    paddingHorizontal: widthPixel(13),
-                    paddingVertical: heightPixel(12),
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    borderWidth: 1,
-                    borderColor: color.primary,
-                    marginHorizontal: widthPixel(35),
-                  }}
-                  activeOpacity={0.8}
-                  onPress={() => {
-                    setShowBudgetList(false);
-                    item.onPress();
-                  }}>
-                  <Text variant="regular" size={16} color={color.black}>
-                    {item.title}
-                  </Text>
-                  <Feather
-                    name="chevron-right"
-                    size={22}
-                    color={color.walletbg}
-                  />
-                </TouchableOpacity>
-              </WalkthroughTooltip>
+                style={{
+                  width: '80%',
+                  backgroundColor: color.bg,
+                  borderRadius: heightPixel(12),
+                  paddingHorizontal: widthPixel(13),
+                  paddingVertical: heightPixel(12),
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  borderWidth: 1,
+                  borderColor: color.primary,
+                  marginHorizontal: widthPixel(35),
+                }}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setShowBudgetList(false);
+                  item.onPress();
+                }}>
+                <Text variant="regular" size={16} color={color.black}>
+                  {item.title}
+                </Text>
+                <Feather
+                  name="chevron-right"
+                  size={22}
+                  color={color.walletbg}
+                />
+              </TouchableOpacity>
             ) : (
               <TouchableOpacity
                 key={item.id}
@@ -477,66 +491,114 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
       <BottomSheet
         visible={showEditIncomeSheet}
         onClose={() => setShowEditIncomeSheet(false)}
-        title="Edit Income"
+        title={incomeSheetMode === 'savings' ? 'Add From Savings' : 'Edit Income'}
         maxHeight={450}
         hideTitleLine={true}
         backgroundColor={color.inputField}>
         <Spacer height={heightPixel(10)} />
-        <View
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: widthPixel(10),
-          }}>
-          <Text>Apply To All Budget Cycles</Text>
-          <Switch
-            trackColor={{false: '#DADADA', true: color.primary}}
-            thumbColor="#fff"
-            ios_backgroundColor="#DADADA"
-            onValueChange={setApplyToAllIncome}
-            value={applyToAllIncome}
-            style={{
-              transform: [{scaleX: 0.7}, {scaleY: 0.7}],
-            }}
-          />
-          <TouchableOpacity onPress={() => setShowApplyToAllInfo(true)}>
-            <Image
-              source={appImages.Aboutimg}
+        {incomeSheetMode === 'edit' ? (
+          <>
+            <Button
+              title="Add From Savings"
+              variant="outline"
               style={{
-                width: widthPixel(20),
-                height: heightPixel(20),
-                resizeMode: 'contain',
+                ...styles.incomeAlternateButton,
+                borderColor: color.primary,
+              }}
+              titleStyle={{color: color.primary}}
+              onPress={() => setIncomeSheetMode('savings')}
+            />
+            <Spacer height={heightPixel(18)} />
+            <View
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: widthPixel(10),
+              }}>
+              <Text>Apply To All Budget Cycles</Text>
+              <Switch
+                trackColor={{false: '#DADADA', true: color.primary}}
+                thumbColor="#fff"
+                ios_backgroundColor="#DADADA"
+                onValueChange={setApplyToAllIncome}
+                value={applyToAllIncome}
+                style={{
+                  transform: [{scaleX: 0.7}, {scaleY: 0.7}],
+                }}
+              />
+              <TouchableOpacity onPress={() => setShowApplyToAllInfo(true)}>
+                <Image
+                  source={appImages.Aboutimg}
+                  style={{
+                    width: widthPixel(20),
+                    height: heightPixel(20),
+                    resizeMode: 'contain',
+                  }}
+                />
+              </TouchableOpacity>
+            </View>
+            <Spacer height={heightPixel(20)} />
+            <TextInput
+              title="Amount"
+              placeholder="0"
+              placeholderTextColor={color.tabicon}
+              value={incomeAmount}
+              onChangeText={setIncomeAmount}
+              keyboardType="numeric"
+              useCurrencyIcon={true}
+              inputContainerStyle={
+                customInputBg ? {backgroundColor: customInputBg} : undefined
+              }
+            />
+            <Spacer height={heightPixel(20)} />
+            <Button
+              title="Save"
+              onPress={() => {
+                const amount = Number(incomeAmount || 0);
+                if (!activeCycleId || !amount || amount <= 0) {
+                  Alert.alert('Invalid income', 'Enter a valid income amount.');
+                  return;
+                }
+
+                onIncomeUpdate?.(amount, applyToAllIncome);
+                setShowEditIncomeSheet(false);
               }}
             />
-          </TouchableOpacity>
-        </View>
-        <Spacer height={heightPixel(20)} />
-        <TextInput
-          title="Amount"
-          placeholder="0"
-          placeholderTextColor={color.tabicon}
-          value={incomeAmount}
-          onChangeText={setIncomeAmount}
-          keyboardType="numeric"
-          useCurrencyIcon={true}
-          inputContainerStyle={
-            customInputBg ? {backgroundColor: customInputBg} : undefined
-          }
-        />
-        <Spacer height={heightPixel(20)} />
-        <Button
-          title="Update"
-          onPress={() => {
-            const amount = Number(incomeAmount || 0);
-            if (!activeCycleId || !amount || amount <= 0) {
-              Alert.alert('Invalid income', 'Enter a valid income amount.');
-              return;
-            }
+          </>
+        ) : (
+          <>
+            <TextInput
+              title="Amount"
+              placeholder="0"
+              placeholderTextColor={color.tabicon}
+              value={addFromSavingsAmount}
+              onChangeText={setAddFromSavingsAmount}
+              keyboardType="numeric"
+              useCurrencyIcon={true}
+              inputContainerStyle={
+                customInputBg ? {backgroundColor: customInputBg} : undefined
+              }
+            />
+            <Spacer height={heightPixel(20)} />
+            <Button
+              title="Save"
+              onPress={() => {
+                const amount = Number(addFromSavingsAmount || 0);
+                if (!activeCycleId || !amount || amount <= 0) {
+                  Alert.alert('Invalid amount', 'Enter a valid amount.');
+                  return;
+                }
+                if (amount > currentSavings) {
+                  Alert.alert('Not enough savings', 'Amount cannot exceed your current savings.');
+                  return;
+                }
 
-            onIncomeUpdate?.(amount, applyToAllIncome);
-            setShowEditIncomeSheet(false);
-          }}
-        />
+                onAddFromSavings?.(amount);
+                setShowEditIncomeSheet(false);
+              }}
+            />
+          </>
+        )}
         <Spacer height={heightPixel(20)} />
         <InfoTooltip
           visible={showApplyToAllInfo}
@@ -579,5 +641,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: widthPixel(17),
     marginLeft: 'auto',
+  },
+  incomeAlternateButton: {
+    alignSelf: 'center',
+    width: widthPixel(175),
+    height: heightPixel(40),
+    paddingHorizontal: widthPixel(16),
+    paddingVertical: heightPixel(8),
   },
 });

@@ -10,6 +10,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import {Swipeable} from 'react-native-gesture-handler';
 import {router, useLocalSearchParams} from 'expo-router';
 import {Formik} from 'formik';
 import {Calendar} from 'react-native-calendars';
@@ -69,6 +70,30 @@ const expenseCategories = [
   ...financialObligationCategories,
   ...lifeStyle,
 ];
+
+const formatOrdinalDay = (dateValue?: string) => {
+  if (!dateValue) {
+    return '';
+  }
+
+  const date = new Date(`${dateValue}T00:00:00`);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+
+  const day = date.getDate();
+  const suffix =
+    day % 100 >= 11 && day % 100 <= 13
+      ? 'th'
+      : day % 10 === 1
+        ? 'st'
+        : day % 10 === 2
+          ? 'nd'
+          : day % 10 === 3
+            ? 'rd'
+            : 'th';
+  return `${day}${suffix}`;
+};
 
 type SavedExpensePreview = {
   id: string;
@@ -225,6 +250,18 @@ const RecurringExpenses = () => {
       setDeletingExpenseId(null);
     }
   };
+
+  const renderSavedExpenseDelete = (expenseId: string) => (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      disabled={deletingExpenseId === expenseId}
+      onPress={() => handleDeleteSavedExpense(expenseId)}
+      style={styles.savedExpenseDeleteAction}>
+      <Text variant="semibold" size={13} color="#FFFFFF">
+        Delete
+      </Text>
+    </TouchableOpacity>
+  );
 
   const PaymentSourceOptions = paymentSources.map(source => ({
     label: source,
@@ -811,38 +848,43 @@ const RecurringExpenses = () => {
                 styles.savedExpenseList,
                 savedExpenses.length > 5 && styles.savedExpenseListScrollable,
               ]}>
+              <View style={styles.savedExpenseHint}>
+                <Feather name="chevrons-left" size={15} color={color.primary} />
+                <Text size={12} color={color.tabicon}>
+                  Swipe left on an expense to delete it.
+                </Text>
+              </View>
               <ScrollView
                 nestedScrollEnabled
                 showsVerticalScrollIndicator={savedExpenses.length > 5}>
                 {savedExpenses.map(item => (
-                  <View key={item.id} style={styles.savedExpenseRow}>
-                    <View style={styles.savedExpenseInfo}>
-                      <Text
-                        variant="semibold"
-                        size={15}
-                        color={color.black}
-                        numberOfLines={1}>
-                        {item.name}
-                      </Text>
-                      <Text
-                        variant="regular"
-                        size={12}
-                        color={color.tabicon}
-                        numberOfLines={1}>
-                        {item.category || 'Expense'}{item.dueDate ? ` - ${item.dueDate}` : ''}
+                  <Swipeable
+                    key={item.id}
+                    overshootRight={false}
+                    renderRightActions={() => renderSavedExpenseDelete(item.id)}>
+                    <View style={[styles.savedExpenseRow, {backgroundColor: color.inputField}]}>
+                      <View style={styles.savedExpenseInfo}>
+                        <Text
+                          variant="semibold"
+                          size={15}
+                          color={color.black}
+                          numberOfLines={1}>
+                          {item.name}
+                        </Text>
+                        <Text
+                          variant="regular"
+                          size={12}
+                          color={color.tabicon}
+                          numberOfLines={1}>
+                          {item.category || 'Expense'}
+                          {item.dueDate ? ` - ${formatOrdinalDay(item.dueDate)}` : ''}
+                        </Text>
+                      </View>
+                      <Text variant="semibold" size={15} color={color.black}>
+                        ${Number(item.amount || 0).toFixed(2)}
                       </Text>
                     </View>
-                    <Text variant="semibold" size={15} color={color.black}>
-                      ${Number(item.amount || 0).toFixed(2)}
-                    </Text>
-                    <TouchableOpacity
-                      activeOpacity={0.7}
-                      disabled={deletingExpenseId === item.id}
-                      onPress={() => handleDeleteSavedExpense(item.id)}
-                      style={styles.deleteExpenseButton}>
-                      <Feather name="x" size={20} color="#D94343" />
-                    </TouchableOpacity>
-                  </View>
+                  </Swipeable>
                 ))}
               </ScrollView>
             </View>
@@ -887,7 +929,10 @@ const RecurringExpenses = () => {
           title="Complete"
           onPress={() => {
             setShowIncomeSheet(false);
-            router.navigate('/(tabs)/HomeScreen');
+            router.navigate({
+              pathname: '/(tabs)/HomeScreen',
+              params: {selectedBudgetId: budgetId},
+            });
           }}
         />
         <Spacer height={heightPixel(40)} />
@@ -1134,11 +1179,20 @@ const styles = StyleSheet.create({
   savedExpenseInfo: {
     flex: 1,
   },
-  deleteExpenseButton: {
-    width: widthPixel(34),
-    height: widthPixel(34),
+  savedExpenseHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: widthPixel(6),
+    paddingBottom: heightPixel(8),
+  },
+  savedExpenseDeleteAction: {
+    width: widthPixel(86),
+    minHeight: heightPixel(58),
+    backgroundColor: '#D94343',
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 8,
+    marginBottom: heightPixel(2),
   },
 });
 

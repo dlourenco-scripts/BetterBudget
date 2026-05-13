@@ -4,6 +4,10 @@ import jwt, {Secret, SignOptions} from 'jsonwebtoken';
 const JWT_SECRET: Secret = process.env.JWT_SECRET || 'change_this_secret';
 const JWT_EXPIRES_IN = (process.env.TOKEN_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
 
+if (process.env.NODE_ENV === 'production' && JWT_SECRET === 'change_this_secret') {
+  throw new Error('JWT_SECRET must be set in production.');
+}
+
 export function hashPassword(password: string) {
   return bcrypt.hashSync(password, 8);
 }

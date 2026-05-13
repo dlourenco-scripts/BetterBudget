@@ -12,6 +12,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import dayjs from 'dayjs';
 import {router, useFocusEffect} from 'expo-router';
 import {Feather} from '@expo/vector-icons';
+import {Swipeable} from 'react-native-gesture-handler';
 import {Calendar} from 'react-native-calendars';
 import {BottomSheet, Button, Header, Spacer, Text, TextInput, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
@@ -35,6 +36,26 @@ interface ExpenseItem {
 }
 
 type ExpenseEditPanel = 'form' | 'date' | 'category';
+
+const formatOrdinalDay = (dateValue?: string) => {
+  const date = dayjs(dateValue);
+  if (!date.isValid()) {
+    return '';
+  }
+
+  const day = date.date();
+  const suffix =
+    day % 100 >= 11 && day % 100 <= 13
+      ? 'th'
+      : day % 10 === 1
+        ? 'st'
+        : day % 10 === 2
+          ? 'nd'
+          : day % 10 === 3
+            ? 'rd'
+            : 'th';
+  return `${day}${suffix}`;
+};
 
 const ExpensesScreen = () => {
   const color = useThemeColor();
@@ -87,7 +108,7 @@ const ExpensesScreen = () => {
             id: expense.id,
             title: expense.name,
             value: Number(expense.amount || 0).toFixed(2),
-            subText: expense.dueDate ? dayjs(expense.dueDate).format('MMM-DD') : '',
+            subText: formatOrdinalDay(expense.dueDate),
             kind: 'expense',
             type: expense.type,
             dueDate: expense.dueDate,
@@ -235,6 +256,12 @@ const ExpensesScreen = () => {
     setIsEditingDetails(true);
   };
 
+  const openEditForItem = (item: ExpenseItem) => {
+    setSelectedItem(item);
+    setShowExpenseDetails(true);
+    startEditingDetails(item);
+  };
+
   const handleSaveDetails = async () => {
     if (!budgetId || !selectedItem) {
       return;
@@ -303,8 +330,29 @@ const ExpensesScreen = () => {
       </TouchableOpacity>
     ) : null;
 
+  const renderSwipeActions = (item: ExpenseItem) => (
+    <View style={styles.swipeActions}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => openEditForItem(item)}
+        style={[styles.swipeAction, {backgroundColor: color.primary}]}>
+        <Text size={13} variant="semibold" color={color.primaryButtonText}>
+          Edit
+        </Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        onPress={() => handleDeleteItem(item)}
+        style={[styles.swipeAction, {backgroundColor: '#D92D20'}]}>
+        <Text size={13} variant="semibold" color="#FFFFFF">
+          Delete
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   const renderItem = (item: ExpenseItem) => {
-    return (
+    const row = (
       <View key={item.id} style={styles.itemRow}>
         {renderSelectionCheckbox(item)}
         <Pressable
@@ -316,6 +364,11 @@ const ExpensesScreen = () => {
             },
           ]}
           onLongPress={() => handleLongPress(item)}
+          onPress={() => {
+            if (isSelectionMode) {
+              toggleSelection(item.id);
+            }
+          }}
           delayLongPress={500}
           hitSlop={4}>
           <View style={styles.expenseTitleWrap}>
@@ -340,17 +393,18 @@ const ExpensesScreen = () => {
               maximumFractionDigits: 2,
             })}
           </Text>
-          {!isSelectionMode && (
-            <TouchableOpacity
-              activeOpacity={0.8}
-              onPress={() => handleCardPress(item)}
-              hitSlop={10}
-              style={styles.expenseActionButton}>
-              <Feather name="more-horizontal" size={20} color={color.tabicon} />
-            </TouchableOpacity>
-          )}
         </Pressable>
       </View>
+    );
+
+    if (isSelectionMode) {
+      return row;
+    }
+
+    return (
+      <Swipeable key={item.id} overshootRight={false} renderRightActions={() => renderSwipeActions(item)}>
+        {row}
+      </Swipeable>
     );
   };
 
@@ -824,5 +878,15 @@ const styles = StyleSheet.create({
     width: widthPixel(28),
     height: heightPixel(28),
     resizeMode: 'contain',
+  },
+  swipeActions: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    marginVertical: 5,
+  },
+  swipeAction: {
+    width: widthPixel(74),
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

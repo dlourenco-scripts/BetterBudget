@@ -1,31 +1,32 @@
 import React, {useState} from 'react';
-import {Image, ScrollView, TouchableOpacity, View} from 'react-native';
+import {Image, TouchableOpacity, View} from 'react-native';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
+import {router} from 'expo-router';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {BottomSheet, Header, Spacer, Text, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
+import {
+  AppNotification,
+  useNotifications,
+} from '@/context/NotificationProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
-
-interface Notification {
-  id: string;
-  message: string;
-  time?: string;
-  category: 'today' | 'yesterday';
-  isRead: boolean;
-}
 
 const NotificationScreen = () => {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
+  const {
+    notifications,
+    markRead,
+    deleteNotifications,
+  } = useNotifications();
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showNotificationSheet, setShowNotificationSheet] = useState(false);
   const [selectedNotification, setSelectedNotification] =
-    useState<Notification | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+    useState<AppNotification | null>(null);
 
   const handleLongPress = (id: string) => {
     if (!isSelectionMode) {
@@ -59,19 +60,48 @@ const NotificationScreen = () => {
   };
 
   const handleDeleteAction = () => {
-    // Delete selected notifications and return to previous content
-    setNotifications(prev => prev.filter(n => !selectedIds.has(n.id)));
+    deleteNotifications([...selectedIds]);
     setIsSelectionMode(false);
     setSelectedIds(new Set());
   };
 
-  const todayNotifications = notifications.filter(n => n.category === 'today');
+  const todayNotifications = notifications.filter(n => {
+    const createdAt = new Date(n.createdAt);
+    return createdAt.toDateString() === new Date().toDateString();
+  });
   const yesterdayNotifications = notifications.filter(
-    n => n.category === 'yesterday',
+    n => {
+      const createdAt = new Date(n.createdAt);
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      return createdAt.toDateString() === yesterday.toDateString();
+    },
   );
 
-  const renderNotification = (notification: Notification) => {
+  const openNotification = async (notification: AppNotification) => {
+    await markRead(notification.id);
+    if (notification.action === 'open_additional_income') {
+      router.push({
+        pathname: '/(tabs)/HomeScreen',
+        params: {
+          selectedBudgetId: String(notification.payload?.budgetId || ''),
+          openAdditionalIncomeId: String(notification.payload?.incomeId || ''),
+        },
+      });
+      return;
+    }
+
+    setSelectedNotification(notification);
+    setShowNotificationSheet(true);
+  };
+
+  const renderNotification = (notification: AppNotification) => {
     const isSelected = selectedIds.has(notification.id);
+    const createdDate = new Date(notification.createdAt);
+    const time = createdDate.toLocaleTimeString([], {
+      hour: 'numeric',
+      minute: '2-digit',
+    });
 
     return (
       <TouchableOpacity
@@ -82,8 +112,7 @@ const NotificationScreen = () => {
           if (isSelectionMode) {
             toggleSelection(notification.id);
           } else {
-            setSelectedNotification(notification);
-            setShowNotificationSheet(true);
+            openNotification(notification);
           }
         }}
         style={{
@@ -119,7 +148,7 @@ const NotificationScreen = () => {
             style={{
               borderRadius: 50,
               backgroundColor:
-                notification.category === 'today' && !notification.isRead
+                !notification.isRead
                   ? color.primary
                   : color.bg,
               alignSelf: 'flex-start',
@@ -139,11 +168,9 @@ const NotificationScreen = () => {
         <Text size={14} variant="medium" color={color.black} style={{flex: 1}}>
           {notification.message}
         </Text>
-        {notification.time && (
-          <Text size={14} variant="medium" color={color.black}>
-            {notification.time}
-          </Text>
-        )}
+        <Text size={12} variant="medium" color={color.tabicon}>
+          {time}
+        </Text>
       </TouchableOpacity>
     );
   };

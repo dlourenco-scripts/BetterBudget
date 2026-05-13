@@ -112,7 +112,7 @@ router.patch(
   '/:debtId',
   authMiddleware,
   body('name').optional().isString(),
-  body('balance').optional().isFloat({gt: 0}),
+  body('balance').optional().isFloat({min: 0}),
   body('minimumPayment').optional().isFloat({min: 0}),
   body('interestRate').optional().isFloat({min: 0}),
   body('priority').optional().isInt({min: 1}),

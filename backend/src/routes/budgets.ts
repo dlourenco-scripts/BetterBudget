@@ -36,6 +36,7 @@ type CycleRow = {
   status: string;
   base_income: string;
   extra_income: string;
+  manual_additional_income: string;
   total_income: string;
   total_expenses: string;
   reserve_amount: string;
@@ -201,6 +202,7 @@ function toCycle(row: CycleRow) {
     status: row.status,
     baseIncome: Number(row.base_income),
     extraIncome: Number(row.extra_income),
+    manualAdditionalIncome: Number(row.manual_additional_income || 0),
     totalIncome: Number(row.total_income),
     totalExpenses: Number(row.total_expenses),
     reserveAmount: Number(row.reserve_amount),
@@ -310,9 +312,12 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
       budget.id,
       cycleEnd,
     ]),
-    db.query('SELECT COALESCE(SUM(minimum_payment), 0) AS total FROM debts WHERE budget_id = $1', [
+    db.query(
+      "SELECT COALESCE(SUM(minimum_payment), 0) AS total FROM debts WHERE budget_id = $1 AND status NOT IN ('paid_off', 'archived')",
+      [
       budget.id,
-    ]),
+      ],
+    ),
   ]);
 
   const incomeItems = incomes.rows.map(toIncome);
@@ -325,7 +330,10 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
         )?.id
       : null;
   const extraIncomeItems = incomeItems.filter(
-    item => !item.isPrimary && item.id !== firstCyclePrimaryIncomeId,
+    item =>
+      !item.isPrimary &&
+      item.id !== firstCyclePrimaryIncomeId &&
+      !String(item.notes || '').includes('manual_additional_income'),
   );
   const expenseItems = expenses.rows
     .map(row => {
@@ -340,16 +348,17 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
   );
   const carryOverIn = Number(previousCycle.rows[0]?.carry_over_out || 0);
   const extraIncome = extraIncomeItems.reduce((sum, item) => sum + item.amount, 0);
+  const manualAdditionalIncome = Math.max(0, Number(cycle.manual_additional_income || 0));
   const savedBaseIncome = Number(cycle.base_income || 0);
   const baseIncome = savedBaseIncome > 0 ? savedBaseIncome : budget.netPay;
-  const totalIncome = baseIncome + extraIncome + carryOverIn;
+  const totalIncome = baseIncome + extraIncome + carryOverIn + manualAdditionalIncome;
   const totalExpenses = expenseItems.reduce((sum, item) => sum + item.amount, 0);
   const carryOverOut = Math.max(0, Number(cycle.carry_over_out || 0));
   const remainingBeforeGoal = totalIncome - totalExpenses;
   const savedGoalAllocation = Math.max(0, Number(cycle.goal_allocation || 0));
   const autoFillGoalAllocation = Math.max(
     0,
-    remainingBeforeGoal - carryOverOut - budget.reserveAmount,
+    remainingBeforeGoal - carryOverOut - budget.reserveAmount - manualAdditionalIncome,
   );
   const debtPaymentTotal = Math.max(0, Number(debts.rows[0]?.total || 0));
   const manualOrDebtAllocation =
@@ -366,20 +375,22 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
     `UPDATE budget_cycles
      SET base_income = $1,
        extra_income = $2,
-       total_income = $3,
-       total_expenses = $4,
-       reserve_amount = $5,
-       goal_type = $6,
-       goal_allocation = $7,
-       carry_over_in = $8,
-       spendable_amount = $9,
-       remaining_amount = $10,
+       manual_additional_income = $3,
+       total_income = $4,
+       total_expenses = $5,
+       reserve_amount = $6,
+       goal_type = $7,
+       goal_allocation = $8,
+       carry_over_in = $9,
+       spendable_amount = $10,
+       remaining_amount = $11,
        updated_at = CURRENT_TIMESTAMP
-     WHERE id = $11
+     WHERE id = $12
      RETURNING *`,
     [
       baseIncome,
       extraIncome,
+      manualAdditionalIncome,
       totalIncome,
       totalExpenses,
       budget.reserveAmount,
@@ -630,7 +641,7 @@ router.patch(
 
       if (req.body.autoFillEnabled === false) {
         const debtTotal = await db.query<{total: string}>(
-          'SELECT COALESCE(SUM(minimum_payment), 0) AS total FROM debts WHERE budget_id = $1',
+          "SELECT COALESCE(SUM(minimum_payment), 0) AS total FROM debts WHERE budget_id = $1 AND status NOT IN ('paid_off', 'archived')",
           [updatedBudget.id],
         );
         await db.query(
@@ -675,6 +686,7 @@ router.patch(
   body('carryOverOut').optional().isFloat({min: 0}),
   body('baseIncome').optional().isFloat({gt: 0}),
   body('goalAllocation').optional().isFloat({min: 0}),
+  body('manualAdditionalIncome').optional().isFloat({min: 0}),
   async (req: AuthRequest, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -694,6 +706,12 @@ router.patch(
       const cycle = cycleResult.rows[0];
       if (!cycle) {
         return res.status(404).json({success: false, message: 'Budget cycle not found.'});
+      }
+      if (toIsoDate(cycle.cycle_end) < new Date().toISOString().slice(0, 10)) {
+        return res.status(403).json({
+          success: false,
+          message: 'Past budget cycles are read-only.',
+        });
       }
 
       const carryOverOut =
@@ -720,12 +738,16 @@ router.patch(
          SET carry_over_out = $1,
            base_income = COALESCE($2, base_income),
            goal_allocation = $3,
+           manual_additional_income = COALESCE($4, manual_additional_income),
            updated_at = CURRENT_TIMESTAMP
-         WHERE id = $4`,
+         WHERE id = $5`,
         [
           carryOverOut,
           req.body.baseIncome === undefined ? null : Number(req.body.baseIncome),
           goalAllocation,
+          req.body.manualAdditionalIncome === undefined
+            ? null
+            : Number(req.body.manualAdditionalIncome),
           cycle.id,
         ],
       );
@@ -786,7 +808,7 @@ router.get('/:budgetId/forecast', authMiddleware, async (req: AuthRequest, res) 
     const [incomes, expenses, debts] = await Promise.all([
       db.query('SELECT amount FROM incomes WHERE budget_id = $1', [budget.id]),
       db.query('SELECT amount FROM expenses WHERE budget_id = $1', [budget.id]),
-      db.query('SELECT id, name, balance, minimum_payment FROM debts WHERE budget_id = $1', [budget.id]),
+      db.query("SELECT id, name, balance, minimum_payment FROM debts WHERE budget_id = $1 AND status NOT IN ('paid_off', 'archived')", [budget.id]),
     ]);
 
     const totalIncome = incomes.rows.reduce((sum, item) => sum + Number(item.amount), 0);
