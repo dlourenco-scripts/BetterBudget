@@ -33,6 +33,8 @@ interface BottomSheetProps {
   maxHeight?: number;
   hideTitleLine?: boolean;
   backgroundColor?: string;
+  dismissible?: boolean;
+  headerLeft?: ReactNode;
 }
 
 export const BottomSheet: React.FC<BottomSheetProps> = ({
@@ -43,6 +45,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   maxHeight = 600,
   hideTitleLine = false,
   backgroundColor,
+  dismissible = true,
+  headerLeft,
 }) => {
   const color = useThemeColor();
   const colorScheme = useAppColorScheme();
@@ -96,6 +100,11 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{translateY: translateY.value}],
   }));
+  const handleClose = () => {
+    if (dismissible) {
+      onClose();
+    }
+  };
 
   return (
     <Modal
@@ -103,13 +112,13 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
       transparent
       animationType="none"
       statusBarTranslucent
-      onRequestClose={onClose}>
+      onRequestClose={handleClose}>
       <View
         style={[
           styles.container,
           Platform.OS === 'android' && {paddingBottom: keyboardHeight + 15},
         ]}>
-        <TouchableWithoutFeedback onPress={onClose}>
+        <TouchableWithoutFeedback onPress={handleClose}>
           <Animated.View style={[styles.backdrop, backdropStyle]} />
         </TouchableWithoutFeedback>
         <KeyboardAvoidingView
@@ -135,11 +144,19 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
                     marginHorizontal: widthPixel(30),
                   },
                 ]}>
+                {headerLeft ? (
+                  <View style={styles.headerLeft}>{headerLeft}</View>
+                ) : null}
                 <Text
                   variant="medium"
                   size={22}
                   color={color.black}
-                  style={styles.title}>
+                  numberOfLines={1}
+                  style={
+                    headerLeft
+                      ? [styles.title, styles.titleWithHeaderLeft]
+                      : styles.title
+                  }>
                   {title}
                 </Text>
               </View>
@@ -246,9 +263,21 @@ const styles = StyleSheet.create({
     paddingVertical: heightPixel(20),
     paddingHorizontal: widthPixel(20),
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerLeft: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
   },
   title: {
     textAlign: 'center',
+  },
+  titleWithHeaderLeft: {
+    paddingLeft: widthPixel(68),
+    paddingRight: widthPixel(18),
   },
   content: {
     paddingHorizontal: widthPixel(30),

@@ -63,6 +63,8 @@ export const budgetApi = {
     callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/incomes`, body),
   updateIncome: (budgetId: string, incomeId: string, body: any) =>
     callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}/incomes/${incomeId}`, body),
+  deleteIncome: (budgetId: string, incomeId: string) =>
+    callApiPromise(Method.DELETE, `${api.budgets.root}/${budgetId}/incomes/${incomeId}`),
   createExpense: (budgetId: string, body: any) =>
     callApiPromise(Method.POST, `${api.budgets.root}/${budgetId}/expenses`, body),
   updateExpense: (budgetId: string, expenseId: string, body: any) =>

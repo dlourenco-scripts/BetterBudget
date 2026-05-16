@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {useCallback, useRef} from 'react';
 import {
   ImageBackground,
   ImageSourcePropType,
@@ -7,6 +7,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import {StatusBar} from 'expo-status-bar';
+import {useFocusEffect} from 'expo-router';
 import {
   KeyboardAwareScrollView,
   KeyboardAwareScrollViewProps,
@@ -34,6 +35,7 @@ interface WrapperProps {
     | 'center';
   keyboardProps?: KeyboardAwareScrollViewProps;
   bottomSpace?: boolean;
+  resetScrollOnFocus?: boolean;
 }
 
 const Wrapper = (props: WrapperProps) => {
@@ -49,13 +51,29 @@ const Wrapper = (props: WrapperProps) => {
     backgroundImageStyle,
     backgroundImageResizeMode = 'cover',
     bottomSpace = true,
+    resetScrollOnFocus = true,
   } = props;
 
   const colors = useThemeColor();
   const colorScheme = useColorScheme();
   const {top, bottom} = useSafeAreaInsets();
+  const scrollRef = useRef<any>(null);
 
   const statusBarColor = StatusBarColor ?? colors.bg;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!resetScrollOnFocus || !keyboadEnabled) {
+        return undefined;
+      }
+
+      const frame = requestAnimationFrame(() => {
+        scrollRef.current?.scrollTo?.({x: 0, y: 0, animated: false});
+      });
+
+      return () => cancelAnimationFrame(frame);
+    }, [keyboadEnabled, resetScrollOnFocus]),
+  );
 
   // ----------------------------------------
   // Content Block Extracted for Reuse
@@ -71,6 +89,7 @@ const Wrapper = (props: WrapperProps) => {
 
       {keyboadEnabled ? (
         <KeyboardAwareScrollView
+          ref={scrollRef}
           style={{flex: 1}}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"

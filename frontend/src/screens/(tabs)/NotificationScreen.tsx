@@ -12,6 +12,20 @@ import {
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
+import {budgetApi} from '@/network/api';
+
+const getManualAppliedAmount = (income: any, cycleId?: string) => {
+  if (!cycleId) {
+    return 0;
+  }
+  const match = String(income?.notes || '').match(
+    new RegExp(`manual_applied:${cycleId}:([0-9.]+)`),
+  );
+  return Math.max(0, Number(match?.[1] || 0));
+};
+
+const getManualRemainingAmount = (income: any, cycleId?: string) =>
+  Math.max(0, Number(income?.amount || 0) - getManualAppliedAmount(income, cycleId));
 
 const NotificationScreen = () => {
   const color = useThemeColor();
@@ -81,11 +95,25 @@ const NotificationScreen = () => {
   const openNotification = async (notification: AppNotification) => {
     await markRead(notification.id);
     if (notification.action === 'open_additional_income') {
+      const budgetId = String(notification.payload?.budgetId || '');
+      const cycleId = String(notification.payload?.cycleId || '');
+      const incomeId = String(notification.payload?.incomeId || '');
+      try {
+        const response = budgetId ? await budgetApi.get(budgetId) : null;
+        const income = response?.data?.incomes?.find((item: any) => item.id === incomeId);
+        if (!income || getManualRemainingAmount(income, cycleId) <= 0) {
+          await deleteNotifications([notification.id]);
+          return;
+        }
+      } catch (error) {
+        console.error('Unable to validate additional income notification:', error);
+      }
       router.push({
         pathname: '/(tabs)/HomeScreen',
         params: {
-          selectedBudgetId: String(notification.payload?.budgetId || ''),
-          openAdditionalIncomeId: String(notification.payload?.incomeId || ''),
+          selectedBudgetId: budgetId,
+          openAdditionalIncomeId: incomeId,
+          openAdditionalIncomeCycleId: cycleId,
         },
       });
       return;

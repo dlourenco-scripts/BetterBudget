@@ -1,4 +1,4 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useRef, useState} from 'react';
 import {
   Alert,
   Image,
@@ -57,6 +57,12 @@ const formatOrdinalDay = (dateValue?: string) => {
   return `${day}${suffix}`;
 };
 
+const formatAmount = (amount: number | string | undefined | null) =>
+  Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 const ExpensesScreen = () => {
   const color = useThemeColor();
   const {currencySymbol} = useCurrency();
@@ -78,6 +84,13 @@ const ExpensesScreen = () => {
   const [expenseEditPanel, setExpenseEditPanel] = useState<ExpenseEditPanel>('form');
   const userEmail = useAuthStore(state => state.userData?.email);
   const primaryBudgetStorageKey = `betterbudget.primaryBudgetId.${userEmail || 'default'}`;
+  const openSwipeableRef = useRef<Swipeable | null>(null);
+  const swipeableRefs = useRef<Record<string, Swipeable | null>>({});
+
+  const closeOpenSwipeable = useCallback(() => {
+    openSwipeableRef.current?.close();
+    openSwipeableRef.current = null;
+  }, []);
 
   const loadExpenses = useCallback(async () => {
     try {
@@ -132,7 +145,10 @@ const ExpensesScreen = () => {
   useFocusEffect(
     useCallback(() => {
       loadExpenses();
-    }, [loadExpenses]),
+      return () => {
+        closeOpenSwipeable();
+      };
+    }, [closeOpenSwipeable, loadExpenses]),
   );
 
   const allItems = [...expenses, ...debts];
@@ -331,10 +347,13 @@ const ExpensesScreen = () => {
     ) : null;
 
   const renderSwipeActions = (item: ExpenseItem) => (
-    <View style={styles.swipeActions}>
+    <View style={styles.swipeActions} onTouchStart={event => event.stopPropagation()}>
       <TouchableOpacity
         activeOpacity={0.85}
-        onPress={() => openEditForItem(item)}
+        onPress={() => {
+          swipeableRefs.current[item.id]?.close();
+          openEditForItem(item);
+        }}
         style={[styles.swipeAction, {backgroundColor: color.primary}]}>
         <Text size={13} variant="semibold" color={color.primaryButtonText}>
           Edit
@@ -342,7 +361,10 @@ const ExpensesScreen = () => {
       </TouchableOpacity>
       <TouchableOpacity
         activeOpacity={0.85}
-        onPress={() => handleDeleteItem(item)}
+        onPress={() => {
+          swipeableRefs.current[item.id]?.close();
+          handleDeleteItem(item);
+        }}
         style={[styles.swipeAction, {backgroundColor: '#D92D20'}]}>
         <Text size={13} variant="semibold" color="#FFFFFF">
           Delete
@@ -365,6 +387,10 @@ const ExpensesScreen = () => {
           ]}
           onLongPress={() => handleLongPress(item)}
           onPress={() => {
+            if (openSwipeableRef.current) {
+              closeOpenSwipeable();
+              return;
+            }
             if (isSelectionMode) {
               toggleSelection(item.id);
             }
@@ -398,18 +424,48 @@ const ExpensesScreen = () => {
     );
 
     if (isSelectionMode) {
-      return row;
+      return (
+        <View key={item.id} style={styles.swipeRowClip}>
+          {row}
+        </View>
+      );
     }
 
     return (
-      <Swipeable key={item.id} overshootRight={false} renderRightActions={() => renderSwipeActions(item)}>
-        {row}
-      </Swipeable>
+      <View key={item.id} style={styles.swipeRowClip}>
+        <Swipeable
+          ref={ref => {
+            swipeableRefs.current[item.id] = ref;
+          }}
+          overshootRight={false}
+          renderRightActions={() => renderSwipeActions(item)}
+          onSwipeableWillOpen={() => {
+            const currentSwipeable = swipeableRefs.current[item.id];
+            if (openSwipeableRef.current && openSwipeableRef.current !== currentSwipeable) {
+              openSwipeableRef.current.close();
+            }
+            openSwipeableRef.current = currentSwipeable;
+          }}
+          onSwipeableClose={() => {
+            const currentSwipeable = swipeableRefs.current[item.id];
+            if (openSwipeableRef.current === currentSwipeable) {
+              openSwipeableRef.current = null;
+            }
+          }}>
+          {row}
+        </Swipeable>
+      </View>
     );
   };
 
   return (
-    <Wrapper keyboardProps={{stickyHeaderIndices: [0], bounces: false}}>
+    <Wrapper
+      keyboardProps={{
+        stickyHeaderIndices: [0],
+        bounces: false,
+        onTouchEnd: closeOpenSwipeable,
+        onScrollBeginDrag: closeOpenSwipeable,
+      }}>
       <Header
         title="Expenses"
         titleStyle={{
@@ -610,7 +666,10 @@ const ExpensesScreen = () => {
           <View style={{gap: heightPixel(12), marginBottom: heightPixel(35)}}>
             {[
               ['Name', selectedItem.title],
-              [selectedItem.kind === 'debt' ? 'Total' : 'Amount', `$${selectedItem.value}`],
+              [
+                selectedItem.kind === 'debt' ? 'Total' : 'Amount',
+                `${currencySymbol}${formatAmount(selectedItem.value)}`,
+              ],
               ...(selectedItem.kind === 'expense'
                 ? [
                     ['Due Date', selectedItem.dueDate || selectedItem.subText || 'Not set'],
@@ -821,7 +880,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  swipeRowClip: {
+    overflow: 'hidden',
     marginVertical: 5,
+    borderRadius: 8,
   },
   expenseTile: {
     flex: 1,
@@ -882,11 +945,14 @@ const styles = StyleSheet.create({
   swipeActions: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    marginVertical: 5,
+    overflow: 'hidden',
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
   },
   swipeAction: {
-    width: widthPixel(74),
+    width: widthPixel(68),
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: widthPixel(4),
   },
 });

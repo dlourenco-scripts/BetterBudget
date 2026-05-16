@@ -183,7 +183,13 @@ function getCycleEnd(startDate: string, cycleType: string) {
     return addDays(startDate, 13);
   }
   if (normalizedType.includes('semi')) {
-    return addDays(startDate, 14);
+    const date = new Date(`${startDate}T00:00:00`);
+    const nextStart =
+      date.getDate() <= 1
+        ? new Date(date.getFullYear(), date.getMonth(), 15)
+        : new Date(date.getFullYear(), date.getMonth() + 1, 1);
+    nextStart.setDate(nextStart.getDate() - 1);
+    return nextStart.toISOString().slice(0, 10);
   }
 
   const date = new Date(`${startDate}T00:00:00`);
@@ -276,8 +282,9 @@ async function getBudgetForUser(budgetId: string, userId: string) {
 
 async function ensureBudgetCycles(budget: ReturnType<typeof toBudget>, count = 6) {
   let startDate = budget.cycleStart;
+  const today = new Date().toISOString().slice(0, 10);
 
-  for (let index = 0; index < count; index++) {
+  for (let index = 0; index < count || startDate <= today; index++) {
     const endDate = getCycleEnd(startDate, budget.cycleType);
     await db.query(
       `INSERT INTO budget_cycles
@@ -302,12 +309,7 @@ async function ensureBudgetCycles(budget: ReturnType<typeof toBudget>, count = 6
 async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: CycleRow) {
   const cycleStart = toIsoDate(cycle.cycle_start);
   const cycleEnd = toIsoDate(cycle.cycle_end);
-  const [incomes, expenses, debts] = await Promise.all([
-    db.query('SELECT * FROM incomes WHERE budget_id = $1 AND received_date BETWEEN $2 AND $3 ORDER BY received_date ASC, created_at ASC', [
-      budget.id,
-      cycleStart,
-      cycleEnd,
-    ]),
+  const [expenses, debts] = await Promise.all([
     db.query('SELECT * FROM expenses WHERE budget_id = $1 AND due_date <= $2 ORDER BY due_date ASC, created_at ASC', [
       budget.id,
       cycleEnd,
@@ -320,21 +322,7 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
     ),
   ]);
 
-  const incomeItems = incomes.rows.map(toIncome);
-  const firstCyclePrimaryIncomeId =
-    cycle.cycle_index === 0
-      ? incomeItems.find(
-          item =>
-            item.receivedDate === budget.cycleStart &&
-            item.amount === budget.netPay,
-        )?.id
-      : null;
-  const extraIncomeItems = incomeItems.filter(
-    item =>
-      !item.isPrimary &&
-      item.id !== firstCyclePrimaryIncomeId &&
-      !String(item.notes || '').includes('manual_additional_income'),
-  );
+  const extraIncomeItems: any[] = [];
   const expenseItems = expenses.rows
     .map(row => {
       const cycleDueDate = getExpenseCycleDate(row, cycleStart, cycleEnd);
@@ -356,18 +344,21 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
   const carryOverOut = Math.max(0, Number(cycle.carry_over_out || 0));
   const remainingBeforeGoal = totalIncome - totalExpenses;
   const savedGoalAllocation = Math.max(0, Number(cycle.goal_allocation || 0));
+  const isPastCycle = cycleEnd < new Date().toISOString().slice(0, 10);
   const autoFillGoalAllocation = Math.max(
     0,
-    remainingBeforeGoal - carryOverOut - budget.reserveAmount - manualAdditionalIncome,
+    remainingBeforeGoal - carryOverOut - budget.reserveAmount,
   );
   const debtPaymentTotal = Math.max(0, Number(debts.rows[0]?.total || 0));
   const manualOrDebtAllocation =
     !budget.autoFillEnabled && cycle.status === 'planned'
       ? debtPaymentTotal
       : savedGoalAllocation;
-  const goalAllocation = budget.autoFillEnabled
-    ? Math.max(autoFillGoalAllocation, debtPaymentTotal)
-    : manualOrDebtAllocation;
+  const goalAllocation = isPastCycle
+    ? savedGoalAllocation
+    : budget.autoFillEnabled
+      ? Math.max(autoFillGoalAllocation, debtPaymentTotal)
+      : manualOrDebtAllocation;
   const remainingAmount = remainingBeforeGoal - goalAllocation - carryOverOut;
   const spendableAmount = Math.max(0, remainingAmount);
 
@@ -446,11 +437,27 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
 
 async function loadCycles(budget: ReturnType<typeof toBudget>) {
   await ensureBudgetCycles(budget);
+  const today = new Date().toISOString().slice(0, 10);
+  await db.query(
+    `UPDATE budget_cycles
+     SET status = CASE
+       WHEN cycle_start <= $2 AND cycle_end >= $2 THEN 'active'
+       WHEN cycle_end < $2 THEN 'past'
+       ELSE 'planned'
+     END,
+       updated_at = CURRENT_TIMESTAMP
+     WHERE budget_id = $1`,
+    [budget.id, today],
+  );
   const result = await db.query<CycleRow>(
     'SELECT * FROM budget_cycles WHERE budget_id = $1 ORDER BY cycle_index ASC',
     [budget.id],
   );
-  return Promise.all(result.rows.map(cycle => syncCycleTotals(budget, cycle)));
+  const syncedCycles: Awaited<ReturnType<typeof syncCycleTotals>>[] = [];
+  for (const cycle of result.rows) {
+    syncedCycles.push(await syncCycleTotals(budget, cycle));
+  }
+  return syncedCycles;
 }
 
 async function loadBudgetDetail(budget: ReturnType<typeof toBudget>) {
@@ -595,9 +602,6 @@ router.patch(
     const fieldMapping: Record<string, string> = {
       name: 'name',
       netPay: 'net_pay',
-      cycleType: 'cycle_type',
-      cycleStart: 'cycle_start',
-      cycleEnd: 'cycle_end',
       reserveAmount: 'reserve_amount',
       currentSavings: 'current_savings',
       savingsGoal: 'savings_goal',
@@ -611,11 +615,15 @@ router.patch(
       return res.status(400).json({success: false, message: 'No valid fields provided.'});
     }
 
+    let client: Awaited<ReturnType<typeof db.connect>> | null = null;
     try {
       const existing = await getBudgetForUser(req.params.budgetId, req.userId!);
       if (!existing) {
         return res.status(404).json({success: false, message: 'Budget not found.'});
       }
+
+      client = await db.connect();
+      await client.query('BEGIN');
 
       const values = updates.map(([, value]) => value);
       const assignments = updates
@@ -623,28 +631,62 @@ router.patch(
         .join(', ');
       values.push(existing.id);
 
-      const result = await db.query<BudgetRow>(
+      const result = await client.query<BudgetRow>(
         `UPDATE budgets SET ${assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = $${values.length} RETURNING *`,
         values,
       );
       const updatedBudget = toBudget(result.rows[0]);
 
       if (req.body.netPay !== undefined) {
-        await db.query(
+        const today = new Date().toISOString().slice(0, 10);
+        await client.query(
           `UPDATE budget_cycles
            SET base_income = $1,
              updated_at = CURRENT_TIMESTAMP
-           WHERE budget_id = $2`,
-          [updatedBudget.netPay, updatedBudget.id],
+           WHERE budget_id = $2
+             AND cycle_end >= $3`,
+          [updatedBudget.netPay, updatedBudget.id, today],
         );
+
+        const primaryIncome = await client.query<{id: string}>(
+          'SELECT id FROM incomes WHERE budget_id = $1 AND is_primary = true ORDER BY created_at ASC LIMIT 1',
+          [updatedBudget.id],
+        );
+        if (primaryIncome.rows[0]?.id) {
+          await client.query(
+            `UPDATE incomes
+             SET amount = $1,
+               frequency = $2,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [updatedBudget.netPay, updatedBudget.cycleType, primaryIncome.rows[0].id],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO incomes
+              (id, budget_id, name, amount, type, frequency, received_date, category, notes, is_primary)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)`,
+            [
+              uuidv4(),
+              updatedBudget.id,
+              'Primary Income',
+              updatedBudget.netPay,
+              'Fixed Income',
+              updatedBudget.cycleType,
+              today,
+              'Primary',
+              '',
+            ],
+          );
+        }
       }
 
       if (req.body.autoFillEnabled === false) {
-        const debtTotal = await db.query<{total: string}>(
+        const debtTotal = await client.query<{total: string}>(
           "SELECT COALESCE(SUM(minimum_payment), 0) AS total FROM debts WHERE budget_id = $1 AND status NOT IN ('paid_off', 'archived')",
           [updatedBudget.id],
         );
-        await db.query(
+        await client.query(
           `UPDATE budget_cycles
            SET goal_allocation = $1,
              updated_at = CURRENT_TIMESTAMP
@@ -653,14 +695,20 @@ router.patch(
         );
       }
 
+      await client.query('COMMIT');
       return res.status(200).json({
         success: true,
         message: 'Budget updated.',
         data: updatedBudget,
       });
     } catch (error) {
+      if (client) {
+        await client.query('ROLLBACK');
+      }
       console.error('Update budget error:', error);
       return res.status(500).json({success: false, message: 'Internal server error.'});
+    } finally {
+      client?.release();
     }
   },
 );

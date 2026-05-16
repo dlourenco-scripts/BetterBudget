@@ -35,7 +35,7 @@ function toDebt(row: DebtRow) {
 }
 
 async function getBudget(budgetId: string, userId: string) {
-  const result = await db.query('SELECT id FROM budgets WHERE id = $1 AND user_id = $2', [
+  const result = await db.query('SELECT id, goal_type FROM budgets WHERE id = $1 AND user_id = $2', [
     budgetId,
     userId,
   ]);
@@ -180,6 +180,16 @@ router.delete('/:debtId', authMiddleware, async (req: AuthRequest, res) => {
     }
 
     await db.query('DELETE FROM debts WHERE id = $1', [debt.id]);
+    const remainingDebts = await db.query<{count: string}>(
+      "SELECT COUNT(*) FROM debts WHERE budget_id = $1 AND status NOT IN ('paid_off', 'archived')",
+      [budget.id],
+    );
+    if (Number(remainingDebts.rows[0]?.count || 0) === 0) {
+      await db.query(
+        "UPDATE budgets SET goal_type = 'save', updated_at = CURRENT_TIMESTAMP WHERE id = $1",
+        [budget.id],
+      );
+    }
     return res.status(204).send();
   } catch (error) {
     console.error('Delete debt error:', error);

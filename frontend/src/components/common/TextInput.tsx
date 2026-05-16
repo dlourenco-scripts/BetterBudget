@@ -1,5 +1,5 @@
 //@ts-ignore
-import React, {JSX, useMemo, useState} from 'react';
+import React, {JSX, forwardRef, useMemo, useState} from 'react';
 import {
   Image,
   Platform,
@@ -44,7 +44,30 @@ interface InputFieldProps extends React.ComponentProps<typeof RNTextInput> {
   errorContainerStyle?: any;
 }
 
-const TextInput = ({
+const normalizeCurrencyText = (text: string) => {
+  const withoutCommas = text.replace(/,/g, '');
+  const digitsAndDecimal = withoutCommas.replace(/[^\d.]/g, '');
+  const [integerPart = '', ...decimalParts] = digitsAndDecimal.split('.');
+  if (decimalParts.length === 0) {
+    return integerPart;
+  }
+  return `${integerPart}.${decimalParts.join('')}`;
+};
+
+const formatCurrencyText = (text?: string | number | null) => {
+  const normalized = normalizeCurrencyText(String(text ?? ''));
+  if (!normalized) {
+    return '';
+  }
+
+  const hasDecimal = normalized.includes('.');
+  const [integerPart = '0', decimalPart = ''] = normalized.split('.');
+  const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+  return hasDecimal ? `${formattedInteger}.${decimalPart}` : formattedInteger;
+};
+
+const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
   title,
   noTitle,
   infoicon,
@@ -74,12 +97,13 @@ const TextInput = ({
   placeholder,
   value,
   ...rest
-}: InputFieldProps) => {
+}, ref) => {
   const colors = useThemeColor();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const showError = touched && error;
   const {getCurrencyIcon} = useCurrency();
   const [isFocused, setIsFocused] = useState(false);
+  const displayValue = useCurrencyIcon ? formatCurrencyText(value as string) : value;
 
   // --------------------
   // TITLE + INFO ICON UI
@@ -156,16 +180,19 @@ const TextInput = ({
         )}
 
         <RNTextInput
+          ref={ref}
           {...rest}
-          value={value}
-          onChangeText={onChangeText}
+          value={displayValue}
+          onChangeText={text => {
+            onChangeText?.(useCurrencyIcon ? normalizeCurrencyText(text) : text);
+          }}
           multiline={multiline}
           onFocus={event => {
             setIsFocused(true);
             if (
               useCurrencyIcon &&
               onChangeText &&
-              /^0+(\.0+)?$/.test(String(value ?? '').trim())
+              /^0+(\.0+)?$/.test(normalizeCurrencyText(String(value ?? '')).trim())
             ) {
               onChangeText('');
             }
@@ -213,7 +240,9 @@ const TextInput = ({
       )}
     </View>
   );
-};
+});
+
+TextInput.displayName = 'TextInput';
 
 export default TextInput;
 

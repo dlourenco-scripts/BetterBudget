@@ -115,20 +115,20 @@ export const NotificationProvider: React.FC<{children: React.ReactNode}> = ({
   const markRead = useCallback(
     async (id: string) => {
       await persist(
-        notifications.map(notification =>
+        notificationsRef.current.map(notification =>
           notification.id === id ? {...notification, isRead: true} : notification,
         ),
       );
     },
-    [notifications, persist],
+    [persist],
   );
 
   const deleteNotifications = useCallback(
     async (ids: string[]) => {
       const idSet = new Set(ids);
-      await persist(notifications.filter(notification => !idSet.has(notification.id)));
+      await persist(notificationsRef.current.filter(notification => !idSet.has(notification.id)));
     },
-    [notifications, persist],
+    [persist],
   );
 
   const unreadCount = notifications.filter(notification => !notification.isRead).length;

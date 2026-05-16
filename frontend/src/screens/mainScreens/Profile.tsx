@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useFocusEffect} from 'expo-router';
 import {
   BottomSheet,
@@ -45,7 +46,12 @@ const Profile = () => {
   const [profileImage, setProfileImage] = useState('');
   const [savingsGoal, setSavingsGoal] = useState('');
   const [draftSavingsGoal, setDraftSavingsGoal] = useState('');
+  const [primaryBudgetId, setPrimaryBudgetId] = useState('');
+  const [reserveAmount, setReserveAmount] = useState('');
   const [showEditSavingsModal, setShowEditSavingsModal] = useState(false);
+  const [showSetupSavingsModal, setShowSetupSavingsModal] = useState(false);
+  const [setupCurrentSavings, setSetupCurrentSavings] = useState('');
+  const [setupSavingsGoal, setSetupSavingsGoal] = useState('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [selectedTime, setSelectedTime] = useState<Date | null>(null);
   const colorScheme = useColorScheme();
@@ -71,16 +77,43 @@ const Profile = () => {
     setSelectedTime(getReminderDate(user?.paydayReminderTime));
   }, []);
 
+  const loadPrimaryBudgetSettings = useCallback(async (userEmail?: string) => {
+    try {
+      const budgetsResponse = await budgetApi.list();
+      const budgetList = budgetsResponse.data || [];
+      const storedPrimaryBudgetId = await AsyncStorage.getItem(
+        `betterbudget.primaryBudgetId.${userEmail || 'default'}`,
+      );
+      const targetBudget =
+        budgetList.find((budget: any) => budget.id === storedPrimaryBudgetId) ||
+        budgetList[0];
+
+      if (!targetBudget?.id) {
+        setPrimaryBudgetId('');
+        setReserveAmount('');
+        return;
+      }
+
+      setPrimaryBudgetId(String(targetBudget.id));
+      setReserveAmount(String(Number(targetBudget.reserveAmount || 0)));
+    } catch (error) {
+      console.error('Unable to load budget account settings:', error);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
-      applyUser(useAuthStore.getState().userData);
+      const cachedUser = useAuthStore.getState().userData;
+      applyUser(cachedUser);
+      loadPrimaryBudgetSettings(cachedUser?.email);
       userApi.me().then(response => {
         if (response.success && response.data) {
           updateUserData(response.data);
           applyUser(response.data);
+          loadPrimaryBudgetSettings(response.data.email);
         }
       });
-    }, [applyUser, updateUserData]),
+    }, [applyUser, loadPrimaryBudgetSettings, updateUserData]),
   );
 
   const updateProfile = async (values: any) => {
@@ -91,20 +124,59 @@ const Profile = () => {
     }
   };
 
+  const updateBudgetsGoal = async (goalType: 'save' | 'debt', extraValues = {}) => {
+    const budgetsResponse = await budgetApi.list();
+    const budgetList = budgetsResponse.data || [];
+    await Promise.all(
+      budgetList.map((budget: any) =>
+        budgetApi.update(budget.id, {goalType, ...extraValues}),
+      ),
+    );
+  };
+
   const updateGoalType = async (goalType: 'save' | 'debt') => {
+    if (
+      goalType === 'save' &&
+      selectedGoal === 'debt' &&
+      Number(savingsGoal || 0) <= 0
+    ) {
+      setSetupCurrentSavings('0');
+      setSetupSavingsGoal('');
+      setShowSetupSavingsModal(true);
+      return;
+    }
+
     setSelectedGoal(goalType === 'debt' ? 'debt' : 'savings');
     await updateProfile({goalType});
 
     try {
-      const budgetsResponse = await budgetApi.list();
-      const budgetList = budgetsResponse.data || [];
-      await Promise.all(
-        budgetList.map((budget: any) =>
-          budgetApi.update(budget.id, {goalType}),
-        ),
-      );
+      await updateBudgetsGoal(goalType);
     } catch (error) {
       console.error('Unable to update budget goals:', error);
+    }
+  };
+
+  const saveSetupSavings = async () => {
+    const nextSavingsGoal = Number(setupSavingsGoal || 0);
+    if (nextSavingsGoal <= 0) {
+      return;
+    }
+
+    const nextCurrentSavings = Number(setupCurrentSavings || 0);
+    try {
+      setSelectedGoal('savings');
+      setSavingsGoal(String(nextSavingsGoal));
+      setDraftSavingsGoal(String(nextSavingsGoal));
+      await updateProfile({goalType: 'save', savingsGoal: nextSavingsGoal});
+      await updateBudgetsGoal('save', {
+        currentSavings: nextCurrentSavings,
+        savingsGoal: nextSavingsGoal,
+        autoFillEnabled: true,
+      });
+      setShowSetupSavingsModal(false);
+    } catch (error) {
+      setSelectedGoal('debt');
+      console.error('Unable to set up savings:', error);
     }
   };
 
@@ -129,6 +201,24 @@ const Profile = () => {
   const handleFullAccessToggle = (value: boolean) => {
     setIsFullAccess(value);
     updateProfile({paydayReminderEnabled: value});
+  };
+
+  const updateReserveAmount = async () => {
+    if (!primaryBudgetId) {
+      return;
+    }
+
+    try {
+      const nextReserveAmount = Number(reserveAmount || 0);
+      const response = await budgetApi.update(primaryBudgetId, {
+        reserveAmount: nextReserveAmount,
+      });
+      if (response.success && response.data) {
+        setReserveAmount(String(Number(response.data.reserveAmount || nextReserveAmount)));
+      }
+    } catch (error) {
+      console.error('Unable to update reserve amount:', error);
+    }
   };
 
   return (
@@ -273,6 +363,28 @@ const Profile = () => {
         placeholder="Email"
         value={email}
         editable={false}
+        inputContainerStyle={{
+          backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
+          borderRadius: 50,
+          paddingVertical: heightPixel(15),
+        }}
+      />
+      <Spacer height={heightPixel(20)} />
+      <TextInput
+        title="Balance To Keep After Expenses"
+        titleStyle={{
+          fontSize: fontPixel(14),
+          color: color.tabicon,
+          fontFamily: 'regular',
+        }}
+        placeholderTextColor={color.shareBudgetText}
+        placeholder="0"
+        value={reserveAmount}
+        onChangeText={setReserveAmount}
+        onBlur={updateReserveAmount}
+        editable={Boolean(primaryBudgetId)}
+        keyboardType="numeric"
+        useCurrencyIcon={true}
         inputContainerStyle={{
           backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
           borderRadius: 50,
@@ -585,6 +697,55 @@ const Profile = () => {
             updateProfile({savingsGoal: Number(draftSavingsGoal || 0)});
             setShowEditSavingsModal(false);
           }}
+        />
+        <Spacer height={heightPixel(30)} />
+      </BottomSheet>
+
+      <BottomSheet
+        visible={showSetupSavingsModal}
+        onClose={() => setShowSetupSavingsModal(false)}
+        title="Set Up Savings"
+        maxHeight={620}
+        backgroundColor={color.inputField}>
+        <Spacer height={heightPixel(12)} />
+        <TextInput
+          title="Current Savings"
+          placeholder="0"
+          placeholderTextColor={color.tabicon}
+          value={setupCurrentSavings}
+          onChangeText={setSetupCurrentSavings}
+          inputContainerStyle={
+            customInputBg ? {backgroundColor: customInputBg} : undefined
+          }
+          keyboardType="numeric"
+          useCurrencyIcon={true}
+        />
+        <Spacer height={heightPixel(18)} />
+        <TextInput
+          title="Savings Goal"
+          placeholder="0"
+          placeholderTextColor={color.tabicon}
+          value={setupSavingsGoal}
+          onChangeText={setSetupSavingsGoal}
+          inputContainerStyle={
+            customInputBg ? {backgroundColor: customInputBg} : undefined
+          }
+          keyboardType="numeric"
+          useCurrencyIcon={true}
+          error={Number(setupSavingsGoal || 0) <= 0 ? 'Savings Goal required' : undefined}
+          touched={setupSavingsGoal.length > 0}
+        />
+        <Spacer height={heightPixel(28)} />
+        <Button title="Save & Continue" onPress={saveSetupSavings} />
+        <Spacer height={heightPixel(12)} />
+        <Button
+          title="Cancel"
+          onPress={() => {
+            setShowSetupSavingsModal(false);
+            setSelectedGoal('debt');
+          }}
+          style={{backgroundColor: 'transparent', borderWidth: 1, borderColor: color.primary}}
+          titleStyle={{color: color.primary}}
         />
         <Spacer height={heightPixel(30)} />
       </BottomSheet>

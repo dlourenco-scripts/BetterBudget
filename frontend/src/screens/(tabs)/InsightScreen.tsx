@@ -10,6 +10,8 @@ import Svg, {
   Line,
   LinearGradient as SvgLinearGradient,
   Path,
+  Polygon,
+  Rect,
   Stop,
   Text as SvgText,
   TSpan,
@@ -356,10 +358,7 @@ const InsightScreen = () => {
   const forecastAllocationPerCycle = isDebtGoal
     ? Math.max(0, Number(primaryDebt?.minimumPayment || 0) || goalAllocation)
     : Math.max(0, goalAllocation);
-  const forecastCyclesInRange = Math.max(
-    1,
-    Math.ceil((4 * 30) / Math.max(cycleLengthDays, 1)),
-  );
+  const forecastMonthsInRange = 4;
   const cyclesRemaining = forecastAllocationPerCycle > 0
     ? isDebtGoal
       ? Math.ceil(forecastTargetAmount / forecastAllocationPerCycle)
@@ -371,33 +370,29 @@ const InsightScreen = () => {
       : !isDebtGoal && totalSavings >= savingsGoal && savingsGoal > 0
         ? dayjs()
         : null;
-  const forecastCycleNumbers = useMemo(() => {
-    if (isDebtGoal && cyclesRemaining > forecastCyclesInRange) {
-      const visibleCycleCount = Math.min(5, Math.max(1, forecastCyclesInRange - 1));
-      return [
-        ...Array.from({length: visibleCycleCount}, (_, index) => index + 1),
-        cyclesRemaining,
-      ];
-    }
-
-    const pointCount = Math.max(1, forecastCyclesInRange);
-    return Array.from({length: pointCount}, (_, index) => index + 1);
-  }, [cyclesRemaining, forecastCyclesInRange, isDebtGoal]);
+  const forecastMonthNumbers = useMemo(
+    () => Array.from({length: forecastMonthsInRange}, (_, index) => index + 1),
+    [forecastMonthsInRange],
+  );
   const forecastPoints = useMemo(
     () =>
-      forecastCycleNumbers.map(cycleNumber => {
-        const startDate = cycleEndDate.add((cycleNumber - 1) * cycleLengthDays + 1, 'day');
-        const endDate = startDate.add(cycleLengthDays - 1, 'day');
+      forecastMonthNumbers.map(monthNumber => {
+        const pointDate = cycleEndDate.add(monthNumber, 'month');
+        const elapsedDays = Math.max(1, pointDate.diff(cycleEndDate, 'day'));
+        const projectedCycleCount = Math.max(
+          1,
+          Math.round(elapsedDays / Math.max(cycleLengthDays, 1)),
+        );
         const rawAmount = isDebtGoal
-          ? Math.max(0, forecastTargetAmount - forecastAllocationPerCycle * cycleNumber)
-          : totalSavings + forecastAllocationPerCycle * cycleNumber;
+          ? Math.max(0, forecastTargetAmount - forecastAllocationPerCycle * projectedCycleCount)
+          : totalSavings + forecastAllocationPerCycle * projectedCycleCount;
         const amount = isDebtGoal ? rawAmount : rawAmount;
         return {
-          cycleNumber,
-          label: `Cycle ${cycleNumber}`,
+          cycleNumber: monthNumber,
+          label: pointDate.format('MMM'),
           amount,
-          date: endDate,
-          rangeLabel: `${startDate.format('MMM D')} - ${endDate.format('MMM D')}`,
+          date: pointDate,
+          rangeLabel: pointDate.format('YYYY'),
           isGoal: isDebtGoal
             ? amount <= 0
             : savingsGoal > 0 && amount >= savingsGoal,
@@ -407,7 +402,7 @@ const InsightScreen = () => {
       cycleEndDate,
       cycleLengthDays,
       forecastAllocationPerCycle,
-      forecastCycleNumbers,
+      forecastMonthNumbers,
       forecastTargetAmount,
       isDebtGoal,
       savingsGoal,
@@ -420,10 +415,10 @@ const InsightScreen = () => {
     (isDebtGoal ? Boolean(primaryDebt) : savingsGoal > 0);
   const forecastChart = useMemo(() => {
     const width = 320;
-    const height = 224;
+    const height = 252;
     const left = 44;
     const right = 18;
-    const top = 18;
+    const top = 74;
     const bottom = 68;
     const graphWidth = width - left - right;
     const graphHeight = height - top - bottom;
@@ -603,31 +598,55 @@ const InsightScreen = () => {
       <View style={styles.insightsSection}>
         <View style={styles.expenseChartCard}>
           <View style={styles.cardHeaderRow}>
-            <Text size={18} variant="medium" color="#FFFFFF">
-              Expenses This Cycle
-            </Text>
-            <View style={styles.calendarButton}>
-              <Feather name="calendar" size={20} color="#FFFFFF" />
-            </View>
-          </View>
-          <Spacer height={8} />
-          <View style={styles.expenseMetaRow}>
-            <View>
-              <Text size={24} variant="semibold" color="#FFFFFF">
-                {currencySymbol}{totalExpenses.toFixed(0)}
-                <Text size={13} color="#D7D7D7"> total spent</Text>
+            <View style={styles.forecastHeaderCopy}>
+              <Text size={18} variant="medium" color="#FFFFFF">
+                Expenses This Cycle
               </Text>
-              <Text size={13} color="#D7D7D7">
-                vs {currencySymbol}{totalBudgetExpenses.toFixed(0)} planned
+              <Text size={12} color="#D7D7D7">
+                Planned vs actual by week
               </Text>
             </View>
-            <View style={styles.daysLeftPill}>
-              <Text size={12} variant="semibold" color="#8A4A00">
+            <View style={styles.chartRangePill}>
+              <Feather name="calendar" size={13} color="#050609" />
+              <Text size={11} variant="semibold" color="#050609">
                 {daysLeftInCycle} days left
               </Text>
             </View>
           </View>
           <Spacer height={12} />
+          <View style={styles.expenseMetricStrip}>
+            <View style={styles.expenseMetricCell}>
+              <Text size={10} color="#D7D7D7" numberOfLines={1}>
+                Planned
+              </Text>
+              <Text size={15} variant="semibold" color="#F8AD2E" numberOfLines={1}>
+                {currencySymbol}{totalBudgetExpenses.toFixed(0)}
+              </Text>
+            </View>
+            <View style={styles.expenseMetricDivider} />
+            <View style={styles.expenseMetricCell}>
+              <Text size={10} color="#D7D7D7" numberOfLines={1}>
+                Spent
+              </Text>
+              <Text size={15} variant="semibold" color="#FFFFFF" numberOfLines={1}>
+                {currencySymbol}{totalExpenses.toFixed(0)}
+              </Text>
+            </View>
+            <View style={styles.expenseMetricDivider} />
+            <View style={styles.expenseMetricCell}>
+              <Text size={10} color="#D7D7D7" numberOfLines={1}>
+                Difference
+              </Text>
+              <Text
+                size={15}
+                variant="semibold"
+                color={totalBudgetExpenses - totalExpenses < 0 ? '#D92D20' : '#F8AD2E'}
+                numberOfLines={1}>
+                {currencySymbol}{(totalBudgetExpenses - totalExpenses).toFixed(0)}
+              </Text>
+            </View>
+          </View>
+          <Spacer height={22} />
           <View style={styles.expenseGraph}>
             <View style={styles.expenseGridLayer}>
               {expenseChartTicks.map((tick, index) => {
@@ -662,7 +681,12 @@ const InsightScreen = () => {
                       ]}
                     >
                       {item.planned > 0 && (
-                        <Text size={10} color="#FFFFFF" style={styles.barValueLabel}>
+                        <Text
+                          size={10}
+                          variant="semibold"
+                          color="#FFFFFF"
+                          numberOfLines={1}
+                          style={styles.barValueLabel}>
                           {currencySymbol}{item.planned.toFixed(0)}
                         </Text>
                       )}
@@ -680,7 +704,12 @@ const InsightScreen = () => {
                       ]}
                     >
                       {item.actual > 0 && (
-                        <Text size={10} color="#FFFFFF" style={styles.barValueLabel}>
+                        <Text
+                          size={10}
+                          variant="semibold"
+                          color="#FFFFFF"
+                          numberOfLines={1}
+                          style={styles.barValueLabel}>
                           {currencySymbol}{item.actual.toFixed(0)}
                         </Text>
                       )}
@@ -750,33 +779,33 @@ const InsightScreen = () => {
           <Spacer height={14} />
           <View style={styles.forecastSummary}>
             <View style={styles.forecastSummaryCell}>
-              <Text size={11} color="#D7D7D7">
+              <Text size={9} color="#D7D7D7" numberOfLines={1}>
                 {isDebtGoal ? 'Current Balance' : 'Current Savings'}
               </Text>
-              <Text size={17} variant="semibold" color="#FFFFFF">
+              <Text size={14} variant="semibold" color="#FFFFFF" numberOfLines={1}>
                 {currencySymbol}
                 {(isDebtGoal ? forecastTargetAmount : totalSavings).toLocaleString(undefined, {maximumFractionDigits: 0})}
               </Text>
             </View>
             <View style={styles.forecastSummaryDivider} />
             <View style={styles.forecastSummaryCell}>
-              <Text size={11} color="#D7D7D7">
+              <Text size={9} color="#D7D7D7" numberOfLines={1}>
                 {isDebtGoal ? 'Per Cycle Payment' : 'Savings Goal'}
               </Text>
-              <Text size={17} variant="semibold" color="#FFFFFF">
+              <Text size={14} variant="semibold" color="#FFFFFF" numberOfLines={1}>
                 {currencySymbol}
                 {(isDebtGoal ? forecastAllocationPerCycle : savingsGoal).toLocaleString(undefined, {maximumFractionDigits: 0})}
               </Text>
             </View>
             <View style={styles.forecastSummaryDivider} />
             <View style={styles.forecastSummaryCell}>
-              <Text size={11} color="#D7D7D7">
+              <Text size={9} color="#D7D7D7" numberOfLines={1}>
                 {isDebtGoal ? 'Estimated Payoff Date' : 'Estimated Goal Date'}
               </Text>
-              <Text size={15} variant="semibold" color="#F8AD2E">
+              <Text size={12} variant="semibold" color="#F8AD2E" numberOfLines={1}>
                 {estimatedGoalDate ? estimatedGoalDate.format('MMM DD, YYYY') : '--'}
               </Text>
-              <Text size={11} color="#D7D7D7">
+              <Text size={9} color="#D7D7D7" numberOfLines={1}>
                 {cyclesRemaining > 0 ? `In ${cyclesRemaining} cycles` : 'No projection'}
               </Text>
             </View>
@@ -795,39 +824,16 @@ const InsightScreen = () => {
             </View>
           ) : (
             <>
-              <View style={styles.forecastLegend}>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendLine, {backgroundColor: '#F7931A'}]} />
-                  <Text size={12} color="#FFFFFF">
-                    {isDebtGoal ? 'Projected Balance' : 'Projected Savings'}
-                  </Text>
-                </View>
-                <View style={styles.legendItem}>
-                  <View style={[styles.legendLineDashed]} />
-                  <Text size={12} color="#FFFFFF">
-                    {isDebtGoal ? 'Paid Off' : 'Savings Goal'}
-                  </Text>
-                </View>
-              </View>
-              <Text size={12} color="#D7D7D7">
+              <Text
+                size={14}
+                variant="semibold"
+                color="#F8AD2E"
+                style={styles.forecastProjectionText}>
                 {isDebtGoal
                   ? `${primaryDebt?.name || 'Priority debt'} projected balance: ${currencySymbol}${Number(projectedRangePoint?.amount || 0).toLocaleString(undefined, {maximumFractionDigits: 0})} by ${projectedRangePoint?.date.format('MMM DD, YYYY')}.`
                   : `Projected savings: ${currencySymbol}${Number(projectedRangePoint?.amount || 0).toLocaleString(undefined, {maximumFractionDigits: 0})} by ${projectedRangePoint?.date.format('MMM DD, YYYY')}.`}
               </Text>
               <View style={styles.forecastChart}>
-                {selectedForecastPoint && (
-                  <View style={styles.forecastCallout}>
-                    <Text size={12} variant="semibold" color="#FFFFFF">
-                      {selectedForecastPoint.label}
-                    </Text>
-                      <Text size={13} variant="semibold" color="#F8AD2E">
-                        {currencySymbol}{Number(selectedForecastPoint.amount).toLocaleString(undefined, {maximumFractionDigits: 0})}
-                      </Text>
-                    <Text size={10} color="#F6C979">
-                      {selectedForecastPoint.date.format('MMM DD, YYYY')}
-                    </Text>
-                  </View>
-                )}
                 <Svg width="100%" height={forecastChart.height} viewBox={`0 0 ${forecastChart.width} ${forecastChart.height}`}>
                   <Defs>
                     <SvgLinearGradient id="forecastFill" x1="0" y1="0" x2="0" y2="1">
@@ -896,6 +902,57 @@ const InsightScreen = () => {
                       </SvgText>
                     </React.Fragment>
                   ))}
+                  {selectedForecastPoint &&
+                    (() => {
+                      const bubbleWidth = 116;
+                      const bubbleHeight = 50;
+                      const pointRadius = selectedForecastPoint.isGoal ? 8 : 6;
+                      const pointerHeight = 8;
+                      const pointerGap = 3;
+                      const pointerTipY = selectedForecastPoint.y - pointRadius - pointerGap;
+                      const pointerBaseY = pointerTipY - pointerHeight;
+                      const bubbleX = Math.min(
+                        Math.max(selectedForecastPoint.x - bubbleWidth / 2, 2),
+                        forecastChart.width - bubbleWidth - 2,
+                      );
+                      const bubbleY = Math.max(2, pointerBaseY - bubbleHeight);
+                      const pointerX = selectedForecastPoint.x;
+                      const calloutAmount = `${currencySymbol}${Number(selectedForecastPoint.amount).toLocaleString(undefined, {maximumFractionDigits: 0})}`;
+                      const calloutDate = selectedForecastPoint.date.format('MMM DD, YYYY');
+                      return (
+                        <React.Fragment key="forecast-callout">
+                          <Rect
+                            x={bubbleX}
+                            y={bubbleY}
+                            width={bubbleWidth}
+                            height={bubbleHeight}
+                            rx={9}
+                            fill="#1F2329"
+                          />
+                          <Polygon
+                            points={`${pointerX - 7},${pointerBaseY} ${pointerX + 7},${pointerBaseY} ${pointerX},${pointerTipY}`}
+                            fill="#1F2329"
+                          />
+                          <SvgText
+                            x={bubbleX + bubbleWidth / 2}
+                            y={bubbleY + 22}
+                            fill="#F8AD2E"
+                            fontSize="13"
+                            fontWeight="700"
+                            textAnchor="middle">
+                            {calloutAmount}
+                          </SvgText>
+                          <SvgText
+                            x={bubbleX + bubbleWidth / 2}
+                            y={bubbleY + 40}
+                            fill="#FFFFFF"
+                            fontSize="11"
+                            textAnchor="middle">
+                            {calloutDate}
+                          </SvgText>
+                        </React.Fragment>
+                      );
+                    })()}
                 </Svg>
               </View>
               <View style={styles.forecastTip}>
@@ -1010,6 +1067,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: widthPixel(12),
   },
+  expenseMetricStrip: {
+    minHeight: heightPixel(54),
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#2D3038',
+    backgroundColor: '#0D0F14',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: widthPixel(10),
+  },
+  expenseMetricCell: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: heightPixel(2),
+  },
+  expenseMetricDivider: {
+    width: 1,
+    height: heightPixel(30),
+    backgroundColor: '#3A3D45',
+  },
   daysLeftPill: {
     borderRadius: 12,
     paddingHorizontal: widthPixel(12),
@@ -1034,6 +1113,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#F8AD2E',
   },
+  chartRangePill: {
+    flexShrink: 0,
+    borderRadius: 10,
+    paddingHorizontal: widthPixel(10),
+    paddingVertical: heightPixel(6),
+    backgroundColor: '#F8AD2E',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: widthPixel(5),
+  },
   forecastRangePill: {
     flexShrink: 0,
     marginRight: widthPixel(4),
@@ -1043,14 +1132,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8AD2E',
   },
   expenseGraph: {
-    height: heightPixel(205),
+    height: heightPixel(202),
     position: 'relative',
     justifyContent: 'flex-end',
-    paddingBottom: heightPixel(48),
+    paddingBottom: heightPixel(42),
   },
   expenseGridLayer: {
     ...StyleSheet.absoluteFillObject,
-    paddingBottom: heightPixel(48),
+    paddingBottom: heightPixel(42),
     justifyContent: 'space-between',
   },
   expenseGridRow: {
@@ -1069,18 +1158,18 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.2)',
   },
   weekBarsRow: {
-    height: heightPixel(157),
+    height: heightPixel(160),
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
     marginLeft: widthPixel(44),
     marginRight: widthPixel(2),
-    borderTopWidth: 1,
-    borderColor: 'rgba(255,255,255,0.55)',
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   weekColumn: {
     flex: 1,
-    maxWidth: widthPixel(70),
+    maxWidth: widthPixel(88),
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
@@ -1088,22 +1177,24 @@ const styles = StyleSheet.create({
     height: heightPixel(120),
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: widthPixel(8),
+    gap: widthPixel(22),
   },
   bar: {
-    width: widthPixel(8),
-    borderRadius: 8,
+    width: widthPixel(18),
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
     alignItems: 'center',
   },
   barValueLabel: {
     position: 'absolute',
     bottom: '100%',
-    marginBottom: heightPixel(4),
-    minWidth: widthPixel(38),
+    marginBottom: heightPixel(6),
+    width: widthPixel(58),
+    left: widthPixel(-20),
     textAlign: 'center',
   },
   weekLabelBox: {
-    height: heightPixel(36),
+    height: heightPixel(34),
     marginTop: heightPixel(7),
     alignItems: 'center',
     justifyContent: 'flex-start',
@@ -1163,7 +1254,7 @@ const styles = StyleSheet.create({
   forecastSummary: {
     borderWidth: 1,
     borderColor: '#2D3038',
-    borderRadius: 12,
+    borderRadius: 9,
     flexDirection: 'row',
     alignItems: 'stretch',
     backgroundColor: '#0D0F14',
@@ -1171,15 +1262,21 @@ const styles = StyleSheet.create({
   },
   forecastSummaryCell: {
     flex: 1,
-    minHeight: heightPixel(76),
+    minHeight: heightPixel(54),
     justifyContent: 'center',
-    paddingHorizontal: widthPixel(10),
-    gap: heightPixel(4),
+    paddingHorizontal: widthPixel(7),
+    paddingVertical: heightPixel(6),
+    gap: heightPixel(2),
   },
   forecastSummaryDivider: {
     width: 1,
-    marginVertical: heightPixel(14),
+    marginVertical: heightPixel(9),
     backgroundColor: '#3A3D45',
+  },
+  forecastProjectionText: {
+    marginTop: heightPixel(16),
+    marginBottom: heightPixel(2),
+    lineHeight: heightPixel(20),
   },
   forecastLegend: {
     marginTop: heightPixel(18),

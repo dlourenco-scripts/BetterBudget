@@ -36,7 +36,7 @@ interface CustomHeaderProps {
   autoFillEnabled?: boolean;
   onAutoFillChange?: (enabled: boolean) => void;
   onSavingsUpdate?: (values: {currentSavings?: number; savingsGoal?: number}) => void;
-  onIncomeUpdate?: (amount: number, applyToAll: boolean) => void;
+  onIncomeUpdate?: (amount: number, applyToAll: boolean) => Promise<boolean> | boolean | void;
   onAddFromSavings?: (amount: number) => void;
 }
 
@@ -92,6 +92,8 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
       budgets.find(budget => budget.id === selectedBudgetId) || budgets[0];
     if (activeBudget) {
       setSelectedBudget(activeBudget.name);
+    } else {
+      setSelectedBudget('No Budget');
     }
   }, [budgets, selectedBudgetId]);
 
@@ -107,7 +109,11 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
 
   useEffect(() => {
     if (showEditIncomeSheet) {
-      setIncomeAmount(String(currentIncome || ''));
+      setIncomeAmount(
+        Number(currentIncome || 0).toLocaleString(undefined, {
+          maximumFractionDigits: 2,
+        }),
+      );
       setAddFromSavingsAmount('');
       setIncomeSheetMode('edit');
       setApplyToAllIncome(false);
@@ -543,7 +549,11 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
               placeholder="0"
               placeholderTextColor={color.tabicon}
               value={incomeAmount}
-              onChangeText={setIncomeAmount}
+              onChangeText={amount =>
+                setIncomeAmount(
+                  amount.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'),
+                )
+              }
               keyboardType="numeric"
               useCurrencyIcon={true}
               inputContainerStyle={
@@ -553,15 +563,26 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             <Spacer height={heightPixel(20)} />
             <Button
               title="Save"
-              onPress={() => {
-                const amount = Number(incomeAmount || 0);
-                if (!activeCycleId || !amount || amount <= 0) {
+              onPress={async () => {
+                const normalizedIncomeAmount = String(incomeAmount || '').replace(/,/g, '').trim();
+                const amount = Number(normalizedIncomeAmount);
+                if (!activeCycleId || normalizedIncomeAmount === '') {
+                  Alert.alert('Invalid income', 'Income cannot be blank.');
+                  return;
+                }
+                if (!Number.isFinite(amount)) {
+                  Alert.alert('Invalid income', 'Income must be a valid number.');
+                  return;
+                }
+                if (amount < 0) {
                   Alert.alert('Invalid income', 'Enter a valid income amount.');
                   return;
                 }
 
-                onIncomeUpdate?.(amount, applyToAllIncome);
-                setShowEditIncomeSheet(false);
+                const didSave = await onIncomeUpdate?.(amount, applyToAllIncome);
+                if (didSave !== false) {
+                  setShowEditIncomeSheet(false);
+                }
               }}
             />
           </>
@@ -572,7 +593,11 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
               placeholder="0"
               placeholderTextColor={color.tabicon}
               value={addFromSavingsAmount}
-              onChangeText={setAddFromSavingsAmount}
+              onChangeText={amount =>
+                setAddFromSavingsAmount(
+                  amount.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'),
+                )
+              }
               keyboardType="numeric"
               useCurrencyIcon={true}
               inputContainerStyle={
@@ -583,7 +608,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             <Button
               title="Save"
               onPress={() => {
-                const amount = Number(addFromSavingsAmount || 0);
+                const amount = Number(String(addFromSavingsAmount || '').replace(/,/g, ''));
                 if (!activeCycleId || !amount || amount <= 0) {
                   Alert.alert('Invalid amount', 'Enter a valid amount.');
                   return;

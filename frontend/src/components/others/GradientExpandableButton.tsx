@@ -101,16 +101,25 @@ const GradientExpandableCard = ({
 
   const {currencySymbol} = useCurrency();
   const textColor = getTextColor();
+  const formatDisplayValue = (rawValue?: string) => {
+    if (!rawValue) {
+      return undefined;
+    }
 
-  const formattedValue = value
-    ? value.startsWith('$') || // Check for common hardcoded symbols to avoid double symbol
-      value.startsWith('£') ||
-      value.startsWith('€') ||
-      value.startsWith('¥') ||
-      value.startsWith(currencySymbol) // Check if it already starts with the dynamic symbol
-      ? value
-      : `${currencySymbol}${value}` // Prepend if no symbol
-    : undefined;
+    const symbol =
+      [currencySymbol, '$', '£', '€', '¥'].find(item => rawValue.startsWith(item)) || currencySymbol;
+    const numericValue = rawValue.replace(symbol, '').replace(/,/g, '').trim();
+    if (!numericValue || Number.isNaN(Number(numericValue))) {
+      return rawValue.startsWith(symbol) ? rawValue : `${currencySymbol}${rawValue}`;
+    }
+
+    return `${symbol}${Number(numericValue).toLocaleString(undefined, {
+      minimumFractionDigits: numericValue.includes('.') ? 2 : 0,
+      maximumFractionDigits: 2,
+    })}`;
+  };
+
+  const formattedValue = formatDisplayValue(value);
 
   return (
     <View style={[styles.container, containerStyle]}>

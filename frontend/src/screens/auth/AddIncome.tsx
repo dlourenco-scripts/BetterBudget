@@ -26,7 +26,6 @@ import {
   Wrapper,
 } from '@/components';
 import {appImages, AppSvgs} from '@/constants/assets';
-import {useNotifications} from '@/context/NotificationProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
@@ -43,7 +42,12 @@ const getCycleEnd = (startDate: string, frequency: string) => {
   } else if (normalizedFrequency.includes('bi')) {
     date.setDate(date.getDate() + 13);
   } else if (normalizedFrequency.includes('semi')) {
-    date.setDate(date.getDate() + 14);
+    const nextStart =
+      date.getDate() <= 1
+        ? new Date(date.getFullYear(), date.getMonth(), 15)
+        : new Date(date.getFullYear(), date.getMonth() + 1, 1);
+    nextStart.setDate(nextStart.getDate() - 1);
+    return nextStart.toISOString().slice(0, 10);
   } else {
     date.setMonth(date.getMonth() + 1);
     date.setDate(date.getDate() - 1);
@@ -93,7 +97,6 @@ const AddIncome = () => {
   const toggleSwitch = () => setIsEnabled(previousState => !previousState);
 
   const color = useThemeColor();
-  const {addNotification} = useNotifications();
   const userGoalType = useAuthStore(state => state.userData?.goalType);
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
@@ -197,6 +200,12 @@ const AddIncome = () => {
       }
 
       const isManualAdditionalIncome = fromHome === 'true' && !isEnabled;
+      const additionalIncomeNotes =
+        fromHome === 'true'
+          ? isManualAdditionalIncome
+            ? 'manual_additional_income_pending'
+            : 'auto_add_enabled'
+          : '';
       const incomeResponse = await budgetApi.createIncome(targetBudgetId, {
         name: values.incomeSourceText,
         amount: Number(values.incomeAmount),
@@ -204,33 +213,13 @@ const AddIncome = () => {
         frequency: selectedFrequency,
         receivedDate: values.selectedDate,
         category: values.incomeSourceText,
-        notes: isManualAdditionalIncome ? 'manual_additional_income_pending' : '',
+        notes: additionalIncomeNotes,
         isPrimary: isCreatingBudget,
       });
 
       if (!incomeResponse.success) {
         Alert.alert('Unable to save income', incomeResponse.message || 'Please try again.');
         return;
-      }
-
-      if (fromHome === 'true') {
-        const incomeId = incomeResponse.data?.id;
-        await addNotification({
-          type: 'additional_income',
-          action: isManualAdditionalIncome ? 'open_additional_income' : 'view',
-          dedupeKey: incomeId
-            ? `additional-income-${incomeId}`
-            : `additional-income-${targetBudgetId}-${values.incomeSourceText}-${values.selectedDate}`,
-          title: 'Additional income available',
-          message: isManualAdditionalIncome
-            ? `${values.incomeSourceText} is available to add to this budget cycle.`
-            : `${values.incomeSourceText} was added to this budget cycle.`,
-          payload: {
-            budgetId: targetBudgetId,
-            incomeId,
-            amount: Number(values.incomeAmount),
-          },
-        });
       }
 
       if (
@@ -571,6 +560,7 @@ const AddIncome = () => {
         hideTitleLine={true}
         backgroundColor={color.inputField}>
         <Calendar
+          minDate={new Date().toISOString().slice(0, 10)}
           onDayPress={day => {
             setSelectedDate(day.dateString);
             setShowCalendarSheet(false);

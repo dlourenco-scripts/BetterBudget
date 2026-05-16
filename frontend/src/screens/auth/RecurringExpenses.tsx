@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   Alert,
   FlatList,
@@ -8,10 +8,11 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  TextInput as NativeTextInput,
   View,
 } from 'react-native';
 import {Swipeable} from 'react-native-gesture-handler';
-import {router, useLocalSearchParams} from 'expo-router';
+import {router, useFocusEffect, useLocalSearchParams} from 'expo-router';
 import {Formik} from 'formik';
 import {Calendar} from 'react-native-calendars';
 import {Entypo, Feather} from '@expo/vector-icons';
@@ -33,6 +34,7 @@ import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {recurringExpensesValidationSchema} from '@/services/validators';
 import {budgetApi} from '@/network/api';
+import SNACKBARS from '@/services/snackbar';
 
 const essentialCategories = [
   {icon: appImages.Housing, label: 'Housing'},
@@ -95,6 +97,12 @@ const formatOrdinalDay = (dateValue?: string) => {
   return `${day}${suffix}`;
 };
 
+const formatAmount = (amount: number | string | undefined | null) =>
+  Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 type SavedExpensePreview = {
   id: string;
   name: string;
@@ -138,7 +146,18 @@ const RecurringExpenses = () => {
     useState(false);
   const [saving, setSaving] = useState(false);
   const [savedExpenses, setSavedExpenses] = useState<SavedExpensePreview[]>([]);
+  const [showRecurringSuccessSheet, setShowRecurringSuccessSheet] = useState(false);
+  const [lastSavedRecurringExpense, setLastSavedRecurringExpense] =
+    useState<SavedExpensePreview | null>(null);
   const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
+  const expenseNameInputRef = useRef<NativeTextInput>(null);
+  const openSavedExpenseSwipeableRef = useRef<Swipeable | null>(null);
+  const savedExpenseSwipeableRefs = useRef<Record<string, Swipeable | null>>({});
+
+  const closeOpenSavedExpenseSwipeable = useCallback(() => {
+    openSavedExpenseSwipeableRef.current?.close();
+    openSavedExpenseSwipeableRef.current = null;
+  }, []);
 
   const color = useThemeColor();
   const colorScheme = useColorScheme();
@@ -146,6 +165,14 @@ const RecurringExpenses = () => {
   const isDarkMode = colorScheme === 'dark';
   const iconButtonBg = isDark ? '#7A7F8C' : '#FFFFFF';
   const customInputBg = isDarkMode ? '#0F1115' : undefined;
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        closeOpenSavedExpenseSwipeable();
+      };
+    }, [closeOpenSavedExpenseSwipeable]),
+  );
 
   useEffect(() => {
     const loadPaymentSources = async () => {
@@ -169,8 +196,15 @@ const RecurringExpenses = () => {
     loadPaymentSources();
   }, [budgetId]);
 
+  const emptyExpenseForm = {
+    expenseName: '',
+    selectedExpense: '',
+    expenseAmount: '',
+    selectedDate: '',
+  };
+
   // Function to clear all form data
-  const clearForm = (resetForm?: () => void) => {
+  const clearForm = (resetForm?: (nextState?: any) => void) => {
     setExpenseName('');
     setExpenseAmount('');
     setSelectedExpense('');
@@ -179,16 +213,47 @@ const RecurringExpenses = () => {
     setSelectedFrequency('Every Pay Cycle');
     setSelectedDate('');
     if (resetForm) {
-      resetForm();
+      resetForm({
+        values: emptyExpenseForm,
+        errors: {},
+        touched: {},
+        submitCount: 0,
+      });
     }
   };
 
-  const handleFormSubmit = async (values: {
-    expenseName: string;
-    selectedExpense: string;
-    expenseAmount: string;
-    selectedDate: string;
-  }) => {
+  const formatDueDay = (dateValue?: string) => {
+    if (!dateValue) {
+      return '';
+    }
+    const rawDate = String(dateValue);
+    const date = new Date(rawDate.includes('T') ? rawDate : `${rawDate}T00:00:00`);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+    const day = date.getDate();
+    const suffix =
+      day % 100 >= 11 && day % 100 <= 13
+        ? 'th'
+        : day % 10 === 1
+          ? 'st'
+          : day % 10 === 2
+            ? 'nd'
+            : day % 10 === 3
+              ? 'rd'
+              : 'th';
+    return `${day}${suffix}`;
+  };
+
+  const handleFormSubmit = async (
+    values: {
+      expenseName: string;
+      selectedExpense: string;
+      expenseAmount: string;
+      selectedDate: string;
+    },
+    resetForm?: (nextState?: any) => void,
+  ) => {
     if (!budgetId) {
       Alert.alert('No budget selected', 'Create or select a budget before adding expenses.');
       return;
@@ -212,13 +277,27 @@ const RecurringExpenses = () => {
         return;
       }
 
-      if (response.data?.id) {
-        setSavedExpenses(previous => [...previous, response.data]);
-      }
-      clearForm();
+      const savedExpense = response.data?.id
+        ? response.data
+        : {
+            id: `${Date.now()}`,
+            name: values.expenseName,
+            amount: Number(values.expenseAmount),
+            category: values.selectedExpense,
+            dueDate: values.selectedDate,
+          };
+      setSavedExpenses(previous => [...previous, savedExpense]);
+      setLastSavedRecurringExpense(savedExpense);
+      SNACKBARS.GreenSnackbar(
+        `Recurring expense added: ${savedExpense.name} • $${formatAmount(savedExpense.amount)} • Due ${formatDueDay(savedExpense.dueDate)}`,
+        {title: 'Saved', duration: 2500},
+      );
+      clearForm(resetForm);
 
-      if (fromExpenses === 'true') {
-        router.navigate('/(tabs)/ExpensesScreen');
+      if (fromHome === 'true') {
+        setShowRecurringSuccessSheet(true);
+      } else if (fromExpenses === 'true') {
+        setShowRecurringSuccessSheet(true);
       } else {
         setShowIncomeSheet(true);
       }
@@ -252,15 +331,20 @@ const RecurringExpenses = () => {
   };
 
   const renderSavedExpenseDelete = (expenseId: string) => (
-    <TouchableOpacity
-      activeOpacity={0.85}
-      disabled={deletingExpenseId === expenseId}
-      onPress={() => handleDeleteSavedExpense(expenseId)}
-      style={styles.savedExpenseDeleteAction}>
-      <Text variant="semibold" size={13} color="#FFFFFF">
-        Delete
-      </Text>
-    </TouchableOpacity>
+    <View onTouchStart={event => event.stopPropagation()}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        disabled={deletingExpenseId === expenseId}
+        onPress={() => {
+          savedExpenseSwipeableRefs.current[expenseId]?.close();
+          handleDeleteSavedExpense(expenseId);
+        }}
+        style={styles.savedExpenseDeleteAction}>
+        <Text variant="semibold" size={13} color="#FFFFFF">
+          Delete
+        </Text>
+      </TouchableOpacity>
+    </View>
   );
 
   const PaymentSourceOptions = paymentSources.map(source => ({
@@ -277,7 +361,13 @@ const RecurringExpenses = () => {
   ];
 
   return (
-    <Wrapper keyboardProps={{stickyHeaderIndices: [0], bounces: false}}>
+    <Wrapper
+      keyboardProps={{
+        stickyHeaderIndices: [0],
+        bounces: false,
+        onTouchEnd: closeOpenSavedExpenseSwipeable,
+        onScrollBeginDrag: closeOpenSavedExpenseSwipeable,
+      }}>
       <Header
         title={
           isEditMode
@@ -302,7 +392,7 @@ const RecurringExpenses = () => {
           selectedDate: selectedDate,
         }}
         validationSchema={recurringExpensesValidationSchema}
-        onSubmit={handleFormSubmit}
+        onSubmit={(values, helpers) => handleFormSubmit(values, helpers.resetForm)}
         enableReinitialize>
         {({
           handleChange,
@@ -316,6 +406,7 @@ const RecurringExpenses = () => {
         }) => (
           <>
             <TextInput
+              ref={expenseNameInputRef}
               title="Expense Name"
               placeholder="Expense Name"
               value={values.expenseName}
@@ -856,13 +947,36 @@ const RecurringExpenses = () => {
               </View>
               <ScrollView
                 nestedScrollEnabled
+                onScrollBeginDrag={closeOpenSavedExpenseSwipeable}
                 showsVerticalScrollIndicator={savedExpenses.length > 5}>
                 {savedExpenses.map(item => (
                   <Swipeable
                     key={item.id}
+                    ref={ref => {
+                      savedExpenseSwipeableRefs.current[item.id] = ref;
+                    }}
                     overshootRight={false}
-                    renderRightActions={() => renderSavedExpenseDelete(item.id)}>
-                    <View style={[styles.savedExpenseRow, {backgroundColor: color.inputField}]}>
+                    renderRightActions={() => renderSavedExpenseDelete(item.id)}
+                    onSwipeableWillOpen={() => {
+                      const currentSwipeable = savedExpenseSwipeableRefs.current[item.id];
+                      if (
+                        openSavedExpenseSwipeableRef.current &&
+                        openSavedExpenseSwipeableRef.current !== currentSwipeable
+                      ) {
+                        openSavedExpenseSwipeableRef.current.close();
+                      }
+                      openSavedExpenseSwipeableRef.current = currentSwipeable;
+                    }}
+                    onSwipeableClose={() => {
+                      const currentSwipeable = savedExpenseSwipeableRefs.current[item.id];
+                      if (openSavedExpenseSwipeableRef.current === currentSwipeable) {
+                        openSavedExpenseSwipeableRef.current = null;
+                      }
+                    }}>
+                    <TouchableOpacity
+                      activeOpacity={1}
+                      onPress={closeOpenSavedExpenseSwipeable}
+                      style={[styles.savedExpenseRow, {backgroundColor: color.inputField}]}>
                       <View style={styles.savedExpenseInfo}>
                         <Text
                           variant="semibold"
@@ -881,9 +995,9 @@ const RecurringExpenses = () => {
                         </Text>
                       </View>
                       <Text variant="semibold" size={15} color={color.black}>
-                        ${Number(item.amount || 0).toFixed(2)}
+                        ${formatAmount(item.amount)}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                   </Swipeable>
                 ))}
               </ScrollView>
@@ -946,6 +1060,7 @@ const RecurringExpenses = () => {
         maxHeight={550}
         backgroundColor={color.inputField}>
         <Calendar
+          minDate={new Date().toISOString().slice(0, 10)}
           onDayPress={day => {
             setSelectedDate(day.dateString);
             setShowCalendarSheet(false);
@@ -1102,6 +1217,59 @@ const RecurringExpenses = () => {
         />
         <Spacer height={30} />
       </BottomSheet>
+
+      <BottomSheet
+        visible={showRecurringSuccessSheet}
+        onClose={() => setShowRecurringSuccessSheet(false)}
+        title="Recurring expense added"
+        hideTitleLine={false}
+        backgroundColor={color.inputField}
+        maxHeight={320}>
+        <View style={styles.successSheetContent}>
+          <Text size={18} variant="semibold" color={color.black} style={{textAlign: 'center'}}>
+            Recurring expense added.
+          </Text>
+          {lastSavedRecurringExpense && (
+            <Text size={15} variant="medium" color={color.black} style={{textAlign: 'center'}}>
+              {lastSavedRecurringExpense.name} • ${formatAmount(lastSavedRecurringExpense.amount)} • Due{' '}
+              {formatDueDay(lastSavedRecurringExpense.dueDate) || '-'}
+            </Text>
+          )}
+          <View style={styles.successSheetActions}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                setShowRecurringSuccessSheet(false);
+              }}
+              style={[
+                styles.successSheetButton,
+                styles.successSheetSecondaryButton,
+                {borderColor: color.primary, backgroundColor: color.bg},
+              ]}>
+              <Text size={13} variant="semibold" color={color.primary}>
+                Add Another
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => {
+                setShowRecurringSuccessSheet(false);
+                if (fromExpenses === 'true') {
+                  router.navigate('/(tabs)/ExpensesScreen');
+                } else {
+                  router.back();
+                }
+              }}
+              style={[styles.successSheetButton, {backgroundColor: color.primary}]}>
+              <Text size={13} variant="semibold" color={color.primaryButtonText}>
+                Done
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+        <Spacer height={heightPixel(20)} />
+      </BottomSheet>
+
       {/* Info Tooltips */}
       <InfoTooltip
         visible={showPaymentMethodInfo}
@@ -1193,6 +1361,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     marginBottom: heightPixel(2),
+  },
+  successSheetContent: {
+    gap: heightPixel(10),
+    paddingHorizontal: widthPixel(8),
+    paddingTop: heightPixel(8),
+  },
+  successSheetActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: widthPixel(10),
+    marginTop: heightPixel(8),
+  },
+  successSheetButton: {
+    minWidth: widthPixel(112),
+    minHeight: heightPixel(38),
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: widthPixel(14),
+  },
+  successSheetSecondaryButton: {
+    borderWidth: 1,
   },
 });
 

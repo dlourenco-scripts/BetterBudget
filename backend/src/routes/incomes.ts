@@ -194,6 +194,12 @@ router.delete('/:incomeId', authMiddleware, async (req: AuthRequest, res) => {
     if (!income) {
       return res.status(404).json({success: false, message: 'Income not found.'});
     }
+    if (income.isPrimary) {
+      return res.status(400).json({
+        success: false,
+        message: 'Primary income cannot be deleted. Create a new budget to change the primary income structure.',
+      });
+    }
 
     await db.query('DELETE FROM incomes WHERE id = $1', [income.id]);
     return res.status(204).send();

@@ -41,6 +41,12 @@ type CycleExpense = {
   notes?: string;
 };
 
+const formatAmount = (amount: number | string | undefined | null) =>
+  Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 const DebitCard = () => {
   const color = useThemeColor();
   const {currencySymbol} = useCurrency();
@@ -253,7 +259,7 @@ const DebitCard = () => {
           <View style={{gap: heightPixel(12), marginBottom: heightPixel(35)}}>
             {[
               ['Name', selectedExpense.name],
-              ['Amount', `${currencySymbol}${Number(selectedExpense.amount || 0).toFixed(2)}`],
+              ['Amount', `${currencySymbol}${formatAmount(selectedExpense.amount)}`],
               ['Due Date', selectedExpense.dueDate || 'Not set'],
               ['Category', (selectedExpense as any).category || 'General'],
               ['Fixed / Variable', selectedExpense.type || 'Fixed'],

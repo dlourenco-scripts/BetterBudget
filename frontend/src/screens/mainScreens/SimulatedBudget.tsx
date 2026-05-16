@@ -1,4 +1,4 @@
-import React, {useCallback, useMemo, useState} from 'react';
+import React, {useCallback, useMemo, useRef, useState} from 'react';
 import {
   Alert,
   Image,
@@ -36,9 +36,10 @@ type SimExpense = {
   dueDate?: string;
   category?: string;
   frequency?: string;
+  paySource?: string;
 };
 
-type ExpenseSheetPanel = 'form' | 'date' | 'category' | 'frequency';
+type ExpenseSheetPanel = 'form' | 'date' | 'category' | 'frequency' | 'paySource' | 'newPaySource';
 
 const emptyExpenseDraft = {
   id: '',
@@ -47,6 +48,7 @@ const emptyExpenseDraft = {
   dueDate: '',
   category: '',
   frequency: 'Monthly',
+  paySource: '',
 };
 
 const frequencyOptions = [
@@ -79,6 +81,12 @@ const getExpenseMonthlyMultiplier = (frequency?: string, cycleMultiplier = 1) =>
 const getMonthlyEquivalent = (amount: number, frequency?: string, cycleMultiplier = 1) =>
   Number(amount || 0) * getExpenseMonthlyMultiplier(frequency, cycleMultiplier);
 
+const formatAmount = (amount: number | string | undefined | null) =>
+  Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
 const getCategoryIcon = (category?: string) => {
   const value = String(category || '').toLowerCase();
   if (value.includes('rent') || value.includes('housing')) return 'home';
@@ -96,16 +104,27 @@ const SimulatedBudget = () => {
   const {currencySymbol} = useCurrency();
   const userEmail = useAuthStore(state => state.userData?.email);
   const primaryBudgetStorageKey = `betterbudget.primaryBudgetId.${userEmail || 'default'}`;
+  const [budgetId, setBudgetId] = useState('');
   const [income, setIncome] = useState(0);
   const [expenses, setExpenses] = useState<SimExpense[]>([]);
+  const [originalExpenseIds, setOriginalExpenseIds] = useState<Set<string>>(new Set());
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showExpenseSheet, setShowExpenseSheet] = useState(false);
   const [expenseDraft, setExpenseDraft] = useState(emptyExpenseDraft);
   const [expensePanel, setExpensePanel] = useState<ExpenseSheetPanel>('form');
+  const [paymentSourceOptions, setPaymentSourceOptions] = useState<string[]>([]);
+  const [newPaySource, setNewPaySource] = useState('');
   const [showIncomeSheet, setShowIncomeSheet] = useState(false);
   const [incomeDraft, setIncomeDraft] = useState('');
   const [simulationCycleMultiplier, setSimulationCycleMultiplier] = useState(1);
+  const openSwipeableRef = useRef<Swipeable | null>(null);
+  const swipeableRefs = useRef<Record<string, Swipeable | null>>({});
+
+  const closeOpenSwipeable = useCallback(() => {
+    openSwipeableRef.current?.close();
+    openSwipeableRef.current = null;
+  }, []);
 
   const totalExpenses = useMemo(
     () =>
@@ -134,13 +153,16 @@ const SimulatedBudget = () => {
         budgetList[0];
 
       if (!targetBudget?.id) {
+        setBudgetId('');
         setIncome(0);
         setExpenses([]);
+        setOriginalExpenseIds(new Set());
         return;
       }
 
       const detailResponse = await budgetApi.get(targetBudget.id);
       const budget = detailResponse.data;
+      setBudgetId(String(targetBudget.id));
       const activeCycle = budget?.currentCycle || budget?.cycles?.[0];
       const cycleExpenses = activeCycle?.expenses || [];
       const budgetExpenses = budget?.expenses || [];
@@ -150,6 +172,16 @@ const SimulatedBudget = () => {
         (expense, index, list) =>
           list.findIndex(item => String(item.id) === String(expense.id)) === index,
       );
+      setPaymentSourceOptions(
+        Array.from(
+          new Set(
+            mergedExpenses
+              .map((expense: any) => String(expense.notes || '').trim())
+              .filter(Boolean),
+          ),
+        ),
+      );
+      setOriginalExpenseIds(new Set(mergedExpenses.map((expense: any) => String(expense.id))));
 
       setIncome(Number(activeCycle?.totalIncome || budget?.netPay || 0) * cycleMultiplier);
       setExpenses(
@@ -167,20 +199,26 @@ const SimulatedBudget = () => {
             dueDate: expense.dueDate || expense.due_date || '',
             category: expense.category || 'General',
             frequency,
+            paySource: expense.notes || '',
           };
         }),
       );
     } catch (error) {
       console.error('Unable to load simulated budget:', error);
+      setBudgetId('');
       setIncome(0);
       setExpenses([]);
+      setOriginalExpenseIds(new Set());
     }
   }, [primaryBudgetStorageKey]);
 
   useFocusEffect(
     useCallback(() => {
       loadSimulation();
-    }, [loadSimulation]),
+      return () => {
+        closeOpenSwipeable();
+      };
+    }, [closeOpenSwipeable, loadSimulation]),
   );
 
   const openAddExpense = () => {
@@ -197,6 +235,7 @@ const SimulatedBudget = () => {
       dueDate: expense.dueDate || '',
       category: expense.category || '',
       frequency: expense.frequency || 'Monthly',
+      paySource: expense.paySource || '',
     });
     setExpensePanel('form');
     setShowExpenseSheet(true);
@@ -241,6 +280,7 @@ const SimulatedBudget = () => {
       dueDate: expenseDraft.dueDate.trim(),
       category: expenseDraft.category.trim() || 'General',
       frequency: expenseDraft.frequency.trim() || 'Monthly',
+      paySource: expenseDraft.paySource.trim(),
     };
 
     setExpenses(previous =>
@@ -251,6 +291,69 @@ const SimulatedBudget = () => {
     setShowExpenseSheet(false);
     setExpenseDraft(emptyExpenseDraft);
     setExpensePanel('form');
+  };
+
+  const applySimulationToBudget = async () => {
+    if (!budgetId) {
+      Alert.alert('No budget selected', 'Create or select a budget before applying a simulation.');
+      return;
+    }
+
+    try {
+      const simulatedIds = new Set(expenses.map(expense => expense.id));
+      const deletedIds = [...originalExpenseIds].filter(id => !simulatedIds.has(id));
+      const updateRequests = expenses
+        .filter(expense => originalExpenseIds.has(expense.id))
+        .map(expense =>
+          budgetApi.updateExpense(budgetId, expense.id, {
+            name: expense.name,
+            amount: Number(expense.amount || 0),
+            type: 'Recurring',
+            frequency: expense.frequency || 'Monthly',
+            dueDate: expense.dueDate || new Date().toISOString().slice(0, 10),
+            category: expense.category || 'General',
+            notes: expense.paySource || '',
+          }),
+        );
+      const createRequests = expenses
+        .filter(expense => !originalExpenseIds.has(expense.id))
+        .map(expense =>
+          budgetApi.createExpense(budgetId, {
+            name: expense.name,
+            amount: Number(expense.amount || 0),
+            type: 'Recurring',
+            frequency: expense.frequency || 'Monthly',
+            dueDate: expense.dueDate || new Date().toISOString().slice(0, 10),
+            category: expense.category || 'General',
+            priority: 1,
+            notes: expense.paySource || '',
+          }),
+        );
+      const deleteRequests = deletedIds.map(id => budgetApi.deleteExpense(budgetId, id));
+      const responses = await Promise.all([
+        ...updateRequests,
+        ...createRequests,
+        ...deleteRequests,
+      ]);
+      const failedResponse = responses.find(response => !response.success && response.status !== 204);
+
+      if (failedResponse) {
+        Alert.alert(
+          'Unable to apply simulation',
+          failedResponse.message || 'Please try again.',
+        );
+        return;
+      }
+
+      Alert.alert('Success', 'Simulated expenses applied to budget.', [
+        {
+          text: 'OK',
+          onPress: () => router.back(),
+        },
+      ]);
+    } catch (error: any) {
+      Alert.alert('Unable to apply simulation', error?.message || 'Please try again.');
+    }
   };
 
   const confirmDeleteExpense = (expense: SimExpense) => {
@@ -290,10 +393,13 @@ const SimulatedBudget = () => {
   };
 
   const renderRightActions = (expense: SimExpense) => (
-    <View style={styles.swipeActions}>
+    <View style={styles.swipeActions} onTouchStart={event => event.stopPropagation()}>
       <TouchableOpacity
         activeOpacity={0.85}
-        onPress={() => openEditExpense(expense)}
+        onPress={() => {
+          swipeableRefs.current[expense.id]?.close();
+          openEditExpense(expense);
+        }}
         style={[styles.swipeAction, {backgroundColor: color.primary}]}>
         <Text size={12} variant="semibold" color={color.primaryButtonText}>
           Edit
@@ -301,7 +407,10 @@ const SimulatedBudget = () => {
       </TouchableOpacity>
       <TouchableOpacity
         activeOpacity={0.85}
-        onPress={() => confirmDeleteExpense(expense)}
+        onPress={() => {
+          swipeableRefs.current[expense.id]?.close();
+          confirmDeleteExpense(expense);
+        }}
         style={[styles.swipeAction, {backgroundColor: '#D94343'}]}>
         <Text size={12} variant="semibold" color="#FFFFFF">
           Delete
@@ -325,6 +434,10 @@ const SimulatedBudget = () => {
           setSelectedIds(new Set([expense.id]));
         }}
         onPress={() => {
+          if (openSwipeableRef.current) {
+            closeOpenSwipeable();
+            return;
+          }
           if (isSelectionMode) toggleSelection(expense.id);
         }}
         style={styles.expenseRow}>
@@ -346,14 +459,15 @@ const SimulatedBudget = () => {
             {[
               expense.dueDate ? `Due ${expense.dueDate}` : null,
               expense.frequency || 'Monthly',
-              showMonthlyHelper ? `≈ ${currencySymbol}${monthlyAmount.toFixed(2)}/mo` : null,
+              expense.paySource || 'No pay source',
+              showMonthlyHelper ? `≈ ${currencySymbol}${formatAmount(monthlyAmount)}/mo` : null,
             ]
               .filter(Boolean)
               .join(' • ')}
           </Text>
         </View>
         <Text size={16} variant="medium" color="#FFFFFF">
-          {currencySymbol}{Number(expense.amount || 0).toFixed(2)}
+          {currencySymbol}{formatAmount(expense.amount)}
         </Text>
       </TouchableOpacity>
     );
@@ -361,14 +475,41 @@ const SimulatedBudget = () => {
     return isSelectionMode ? (
       <View key={expense.id}>{row}</View>
     ) : (
-      <Swipeable key={expense.id} overshootRight={false} renderRightActions={() => renderRightActions(expense)}>
-        {row}
-      </Swipeable>
+      <View key={expense.id} style={styles.swipeRowClip}>
+        <Swipeable
+          ref={ref => {
+            swipeableRefs.current[expense.id] = ref;
+          }}
+          overshootRight={false}
+          renderRightActions={() => renderRightActions(expense)}
+          onSwipeableWillOpen={() => {
+            const currentSwipeable = swipeableRefs.current[expense.id];
+            if (openSwipeableRef.current && openSwipeableRef.current !== currentSwipeable) {
+              openSwipeableRef.current.close();
+            }
+            openSwipeableRef.current = currentSwipeable;
+          }}
+          onSwipeableClose={() => {
+            const currentSwipeable = swipeableRefs.current[expense.id];
+            if (openSwipeableRef.current === currentSwipeable) {
+              openSwipeableRef.current = null;
+            }
+          }}>
+          {row}
+        </Swipeable>
+      </View>
     );
   };
 
   return (
-    <Wrapper keyboardProps={{stickyHeaderIndices: [0], bounces: false}} bottomSpace={false}>
+    <Wrapper
+      keyboardProps={{
+        stickyHeaderIndices: [0],
+        bounces: false,
+        onTouchEnd: closeOpenSwipeable,
+        onScrollBeginDrag: closeOpenSwipeable,
+      }}
+      bottomSpace={false}>
       <Header
         canGoBack={isSelectionMode}
         onBackPress={() => {
@@ -449,21 +590,21 @@ const SimulatedBudget = () => {
           <View style={styles.summaryCell}>
             <Text size={12} color="#D7D7D7">Monthly Income</Text>
             <Text size={18} variant="semibold" color="#F8AD2E">
-              {currencySymbol}{income.toFixed(2)}
+              {currencySymbol}{formatAmount(income)}
             </Text>
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryCell}>
             <Text size={12} color="#D7D7D7">Total Expenses</Text>
             <Text size={18} variant="semibold" color="#FF4545">
-              {currencySymbol}{totalExpenses.toFixed(2)}
+              {currencySymbol}{formatAmount(totalExpenses)}
             </Text>
           </View>
           <View style={styles.summaryDivider} />
           <View style={styles.summaryCell}>
             <Text size={12} color="#D7D7D7">Remaining</Text>
             <Text size={18} variant="semibold" color={remaining < 0 ? '#FF4545' : '#F8AD2E'}>
-              {currencySymbol}{remaining.toFixed(2)}
+              {currencySymbol}{formatAmount(remaining)}
             </Text>
           </View>
         </View>
@@ -498,7 +639,7 @@ const SimulatedBudget = () => {
           </Text>
         </View>
         <Text size={16} variant="semibold" color="#F8AD2E">
-          {currencySymbol}{income.toFixed(2)}
+          {currencySymbol}{formatAmount(income)}
         </Text>
       </View>
 
@@ -521,7 +662,7 @@ const SimulatedBudget = () => {
         <View style={styles.totalExpenseRow}>
           <Text size={15} variant="semibold" color="#FFFFFF">Total Expenses</Text>
           <Text size={16} variant="semibold" color="#FF4545">
-            {currencySymbol}{totalExpenses.toFixed(2)}
+            {currencySymbol}{formatAmount(totalExpenses)}
           </Text>
         </View>
       </View>
@@ -543,7 +684,7 @@ const SimulatedBudget = () => {
             Exit Simulation
           </Text>
         </TouchableOpacity>
-        <TouchableOpacity activeOpacity={0.82} style={styles.applyButton}>
+        <TouchableOpacity activeOpacity={0.82} onPress={applySimulationToBudget} style={styles.applyButton}>
           <Text size={16} variant="semibold" color="#050609">
             Apply to Budget
           </Text>
@@ -565,7 +706,25 @@ const SimulatedBudget = () => {
                   : 'Add Simulated Expense'
         }
         hideTitleLine={false}
-        backgroundColor={color.inputField}>
+        backgroundColor={color.inputField}
+        maxHeight={expensePanel === 'category' ? 520 : 600}
+        headerLeft={
+          expensePanel === 'category' ? (
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => setExpensePanel('form')}
+              style={styles.sheetHeaderBackButton}>
+              <Feather name="arrow-left" size={18} color={color.primary} />
+              <Text
+                size={13}
+                variant="semibold"
+                color={color.primary}
+                numberOfLines={1}>
+                Back
+              </Text>
+            </TouchableOpacity>
+          ) : undefined
+        }>
         <Spacer height={heightPixel(10)} />
         {expensePanel === 'form' && (
           <View style={{gap: heightPixel(12), marginBottom: heightPixel(28)}}>
@@ -593,7 +752,7 @@ const SimulatedBudget = () => {
               placeholder="Select Due Date"
               value={expenseDraft.dueDate}
               editable={false}
-              onPressIn={() => setExpensePanel('date')}
+              onPress={() => setExpensePanel('date')}
               rightIcon={appImages.Calenderimg}
               rightIconPress={() => setExpensePanel('date')}
             />
@@ -602,14 +761,23 @@ const SimulatedBudget = () => {
               placeholder="Select Category"
               value={expenseDraft.category}
               editable={false}
-              onPressIn={() => setExpensePanel('category')}
+              onPress={() => setExpensePanel('category')}
             />
             <TextInput
               title="Frequency"
               placeholder="Select Frequency"
               value={expenseDraft.frequency}
               editable={false}
-              onPressIn={() => setExpensePanel('frequency')}
+              onPress={() => setExpensePanel('frequency')}
+            />
+            <TextInput
+              title="Pay Source"
+              placeholder="Select or enter Pay Source"
+              value={expenseDraft.paySource}
+              editable={false}
+              onPress={() => setExpensePanel('paySource')}
+              rightIcon={appImages.ArrowDown}
+              rightIconPress={() => setExpensePanel('paySource')}
             />
             <Button title={isEditing ? 'Save Changes' : 'Add Expense'} onPress={saveSimExpense} />
             <Button
@@ -690,7 +858,12 @@ const SimulatedBudget = () => {
                           },
                         ]}>
                         <Image source={item.icon} style={styles.categoryIcon} resizeMode="contain" />
-                        <Text size={11} variant="medium" color={color.tabicon} style={{textAlign: 'center'}}>
+                        <Text
+                          size={10}
+                          variant="medium"
+                          color={color.tabicon}
+                          numberOfLines={2}
+                          style={styles.categoryLabel}>
                           {item.label}
                         </Text>
                       </TouchableOpacity>
@@ -700,13 +873,6 @@ const SimulatedBudget = () => {
               </View>
             ))}
             <Spacer height={heightPixel(8)} />
-            <Button
-              title="Cancel"
-              variant="outline"
-              style={{borderColor: color.primary}}
-              titleStyle={{color: color.primary}}
-              onPress={() => setExpensePanel('form')}
-            />
           </View>
         )}
 
@@ -742,6 +908,89 @@ const SimulatedBudget = () => {
               style={{borderColor: color.primary}}
               titleStyle={{color: color.primary}}
               onPress={() => setExpensePanel('form')}
+            />
+          </View>
+        )}
+
+        {expensePanel === 'paySource' && (
+          <View style={{gap: heightPixel(10), marginBottom: heightPixel(28)}}>
+            {paymentSourceOptions.map(source => {
+              const isSelected = expenseDraft.paySource === source;
+              return (
+                <TouchableOpacity
+                  key={source}
+                  activeOpacity={0.82}
+                  onPress={() => {
+                    setExpenseDraft(previous => ({...previous, paySource: source}));
+                    setExpensePanel('form');
+                  }}
+                  style={[
+                    styles.sheetOption,
+                    {
+                      borderColor: isSelected ? color.primary : color.border,
+                      backgroundColor: isSelected ? 'rgba(248, 173, 46, 0.12)' : 'transparent',
+                    },
+                  ]}>
+                  <Text size={15} variant="medium" color={color.black}>
+                    {source}
+                  </Text>
+                  {isSelected && <Feather name="check" size={18} color={color.primary} />}
+                </TouchableOpacity>
+              );
+            })}
+            {paymentSourceOptions.length === 0 && (
+              <Text size={14} color={color.tabicon} style={{textAlign: 'center'}}>
+                No payment sources yet.
+              </Text>
+            )}
+            <TouchableOpacity
+              activeOpacity={0.82}
+              onPress={() => setExpensePanel('newPaySource')}
+              style={[styles.sheetOption, {borderColor: color.primary}]}>
+              <Text size={15} variant="medium" color={color.primary}>
+                Add New Payment Source
+              </Text>
+              <Feather name="plus" size={18} color={color.primary} />
+            </TouchableOpacity>
+            <Button
+              title="Cancel"
+              variant="outline"
+              style={{borderColor: color.primary}}
+              titleStyle={{color: color.primary}}
+              onPress={() => setExpensePanel('form')}
+            />
+          </View>
+        )}
+
+        {expensePanel === 'newPaySource' && (
+          <View style={{gap: heightPixel(12), marginBottom: heightPixel(28)}}>
+            <TextInput
+              title="Payment Source"
+              placeholder="Enter Name"
+              value={newPaySource}
+              onChangeText={setNewPaySource}
+            />
+            <Button
+              title="Add Payment Source"
+              onPress={() => {
+                const trimmedSource = newPaySource.trim();
+                if (!trimmedSource) {
+                  return;
+                }
+                setPaymentSourceOptions(previous =>
+                  previous.includes(trimmedSource) ? previous : [...previous, trimmedSource],
+                );
+                setExpenseDraft(previous => ({...previous, paySource: trimmedSource}));
+                setNewPaySource('');
+                setExpensePanel('form');
+              }}
+            />
+            <Button
+              title="Cancel"
+              variant="outline"
+              style={{borderColor: color.primary}}
+              titleStyle={{color: color.primary}}
+              onPress={() => setExpensePanel('paySource')}
             />
           </View>
         )}
@@ -863,9 +1112,14 @@ const styles = StyleSheet.create({
     paddingVertical: heightPixel(10),
     borderBottomWidth: 1,
     borderBottomColor: '#272A31',
+    backgroundColor: '#050609',
     flexDirection: 'row',
     alignItems: 'center',
     gap: widthPixel(12),
+  },
+  swipeRowClip: {
+    backgroundColor: '#050609',
+    overflow: 'hidden',
   },
   expenseIcon: {
     width: widthPixel(42),
@@ -941,11 +1195,21 @@ const styles = StyleSheet.create({
   swipeActions: {
     flexDirection: 'row',
     alignItems: 'stretch',
+    backgroundColor: '#050609',
   },
   swipeAction: {
-    width: widthPixel(72),
+    width: widthPixel(68),
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: widthPixel(4),
+  },
+  sheetHeaderBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: widthPixel(4),
+    maxWidth: widthPixel(68),
+    paddingHorizontal: widthPixel(2),
+    paddingVertical: heightPixel(8),
   },
   sheetGroupTitle: {
     marginTop: heightPixel(10),
@@ -955,23 +1219,28 @@ const styles = StyleSheet.create({
   categoryGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: widthPixel(10),
+    justifyContent: 'space-between',
     marginBottom: heightPixel(12),
   },
   categoryOption: {
-    width: '22%',
-    minHeight: heightPixel(92),
+    width: '23.5%',
+    minHeight: heightPixel(100),
     borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: widthPixel(4),
+    paddingHorizontal: widthPixel(3),
     paddingVertical: heightPixel(8),
-    gap: heightPixel(6),
+    gap: heightPixel(5),
+    marginBottom: heightPixel(10),
   },
   categoryIcon: {
-    width: widthPixel(26),
-    height: heightPixel(26),
+    width: widthPixel(24),
+    height: heightPixel(24),
+  },
+  categoryLabel: {
+    textAlign: 'center',
+    lineHeight: heightPixel(14),
   },
   sheetOption: {
     minHeight: heightPixel(50),
