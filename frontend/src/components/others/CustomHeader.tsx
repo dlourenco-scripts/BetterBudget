@@ -27,8 +27,10 @@ interface CustomHeaderProps {
   budgets?: Budget[];
   primaryBudgetId?: string;
   selectedBudgetId?: string;
+  isBudgetLoading?: boolean;
   onPrimaryBudgetChange?: (budgetId: string) => void;
   onBudgetSelect?: (budgetId: string) => void;
+  onBudgetRename?: (budgetId: string, name: string) => Promise<boolean> | boolean | void;
   currentSavings?: number;
   savingsGoal?: number;
   currentIncome?: number;
@@ -46,8 +48,10 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   budgets = [],
   primaryBudgetId,
   selectedBudgetId,
+  isBudgetLoading = false,
   onPrimaryBudgetChange,
   onBudgetSelect,
+  onBudgetRename,
   currentSavings = 0,
   savingsGoal = 0,
   currentIncome = 0,
@@ -82,20 +86,30 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   const [sheetMode, setSheetMode] = useState<'edit' | 'goal'>('edit');
   const [showEditIncomeSheet, setShowEditIncomeSheet] = useState(false);
   const [incomeAmount, setIncomeAmount] = useState('');
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
+  const [editBudgetName, setEditBudgetName] = useState('');
   const [addFromSavingsAmount, setAddFromSavingsAmount] = useState('');
   const [incomeSheetMode, setIncomeSheetMode] = useState<'edit' | 'savings'>('edit');
   const [showApplyToAllInfo, setShowApplyToAllInfo] = useState(false);
   const [applyToAllIncome, setApplyToAllIncome] = useState(false);
+  const [editIncomeOpenKey, setEditIncomeOpenKey] = useState(0);
+
+  const formatIncomeAmount = (amount: number | undefined) =>
+    Number(amount || 0).toLocaleString(undefined, {
+      maximumFractionDigits: 2,
+    });
 
   useEffect(() => {
     const activeBudget =
       budgets.find(budget => budget.id === selectedBudgetId) || budgets[0];
     if (activeBudget) {
       setSelectedBudget(activeBudget.name);
+    } else if (isBudgetLoading) {
+      setSelectedBudget('Loading...');
     } else {
       setSelectedBudget('No Budget');
     }
-  }, [budgets, selectedBudgetId]);
+  }, [budgets, isBudgetLoading, selectedBudgetId]);
 
   useEffect(() => {
     setIsEnabled(autoFillEnabled);
@@ -109,16 +123,53 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
 
   useEffect(() => {
     if (showEditIncomeSheet) {
-      setIncomeAmount(
-        Number(currentIncome || 0).toLocaleString(undefined, {
-          maximumFractionDigits: 2,
-        }),
-      );
+      setIncomeAmount(formatIncomeAmount(currentIncome));
       setAddFromSavingsAmount('');
       setIncomeSheetMode('edit');
       setApplyToAllIncome(false);
     }
   }, [currentIncome, showEditIncomeSheet]);
+
+  const openBudgetRename = (budget: Budget) => {
+    setEditingBudget(budget);
+    setEditBudgetName(budget.name);
+  };
+
+  const saveBudgetRename = async () => {
+    if (!editingBudget) return;
+
+    const nextName = editBudgetName.trim();
+    if (!nextName) {
+      Alert.alert('Missing budget name', 'Enter a budget name.');
+      return;
+    }
+
+    const result = await onBudgetRename?.(editingBudget.id, nextName);
+    if (result === false) {
+      return;
+    }
+
+    setSelectedBudget(nextName);
+    setEditingBudget(null);
+    setEditBudgetName('');
+  };
+
+  const openEditIncomeSheet = () => {
+    setIncomeAmount(formatIncomeAmount(currentIncome));
+    setAddFromSavingsAmount('');
+    setIncomeSheetMode('edit');
+    setApplyToAllIncome(false);
+    setEditIncomeOpenKey(previous => previous + 1);
+    setShowEditIncomeSheet(true);
+  };
+
+  const closeEditIncomeSheet = () => {
+    setShowEditIncomeSheet(false);
+    setIncomeAmount('');
+    setAddFromSavingsAmount('');
+    setIncomeSheetMode('edit');
+    setApplyToAllIncome(false);
+  };
 
   // Determine if the current selected budget is the primary budget
   const currentBudget = budgets.find(b => b.name === selectedBudget);
@@ -145,7 +196,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
     {
       id: 2,
       title: 'Edit Budget Income',
-      onPress: () => setShowEditIncomeSheet(true),
+      onPress: openEditIncomeSheet,
     },
     {
       id: 3,
@@ -336,27 +387,43 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                     {budget.name}
                   </Text>
                 </View>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    onDeletePress?.();
-                    setShowBudgetSection(false);
-                  }}
-                  style={{
-                    backgroundColor: isDarkMode ? '#0F1115' : color.bg,
-                    padding: widthPixel(3),
-                    borderRadius: heightPixel(50),
-                  }}>
-                  <Image
-                    source={appImages.Deleteimg}
-                    style={{
-                      width: widthPixel(13),
-                      height: heightPixel(13),
-                      resizeMode: 'contain',
-                      tintColor: color.black,
+                <View style={{flexDirection: 'row', alignItems: 'center', gap: widthPixel(8)}}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={(event: any) => {
+                      event.stopPropagation?.();
+                      setShowBudgetSection(false);
+                      openBudgetRename(budget);
                     }}
-                  />
-                </TouchableOpacity>
+                    style={{
+                      backgroundColor: isDarkMode ? '#0F1115' : color.bg,
+                      padding: widthPixel(5),
+                      borderRadius: heightPixel(50),
+                    }}>
+                    <Feather name="edit-2" size={14} color={color.black} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      onDeletePress?.();
+                      setShowBudgetSection(false);
+                    }}
+                    style={{
+                      backgroundColor: isDarkMode ? '#0F1115' : color.bg,
+                      padding: widthPixel(3),
+                      borderRadius: heightPixel(50),
+                    }}>
+                    <Image
+                      source={appImages.Deleteimg}
+                      style={{
+                        width: widthPixel(13),
+                        height: heightPixel(13),
+                        resizeMode: 'contain',
+                        tintColor: color.black,
+                      }}
+                    />
+                  </TouchableOpacity>
+                </View>
               </TouchableOpacity>
             );
           })}
@@ -378,6 +445,49 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
           }}
         />
         <Spacer height={heightPixel(40)} />
+      </BottomSheet>
+      <BottomSheet
+        visible={Boolean(editingBudget)}
+        onClose={() => {
+          setEditingBudget(null);
+          setEditBudgetName('');
+        }}
+        title="Edit Budget Name"
+        hideTitleLine={true}
+        backgroundColor={color.inputField}>
+        <Spacer height={heightPixel(20)} />
+        <View style={{gap: heightPixel(14), marginBottom: heightPixel(35)}}>
+          <TextInput
+            title="Budget Name"
+            placeholder="Budget Name"
+            value={editBudgetName}
+            onChangeText={setEditBudgetName}
+          />
+          <Button
+            title="Save"
+            variant="outline"
+            style={{
+              borderWidth: 1,
+              borderColor: color.primary,
+            }}
+            titleStyle={{color: color.primary}}
+            onPress={saveBudgetRename}
+          />
+          <Button
+            title="Cancel"
+            variant="outline"
+            style={{
+              borderWidth: 1,
+              borderColor: color.primary,
+              backgroundColor: color.bg,
+            }}
+            titleStyle={{color: color.primary}}
+            onPress={() => {
+              setEditingBudget(null);
+              setEditBudgetName('');
+            }}
+          />
+        </View>
       </BottomSheet>
       <BottomSheet
         visible={showBudgetList}
@@ -496,7 +606,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
       </BottomSheet>
       <BottomSheet
         visible={showEditIncomeSheet}
-        onClose={() => setShowEditIncomeSheet(false)}
+        onClose={closeEditIncomeSheet}
         title={incomeSheetMode === 'savings' ? 'Add From Savings' : 'Edit Income'}
         maxHeight={450}
         hideTitleLine={true}
@@ -545,6 +655,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             </View>
             <Spacer height={heightPixel(20)} />
             <TextInput
+              key={`edit-income-${editIncomeOpenKey}-${currentIncome}`}
               title="Amount"
               placeholder="0"
               placeholderTextColor={color.tabicon}
@@ -575,13 +686,17 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                   return;
                 }
                 if (amount < 0) {
-                  Alert.alert('Invalid income', 'Enter a valid income amount.');
+                  Alert.alert('Invalid income', 'Income cannot be negative.');
+                  return;
+                }
+                if (amount === 0) {
+                  Alert.alert('Invalid income', 'Please enter an income amount greater than 0.');
                   return;
                 }
 
                 const didSave = await onIncomeUpdate?.(amount, applyToAllIncome);
                 if (didSave !== false) {
-                  setShowEditIncomeSheet(false);
+                  closeEditIncomeSheet();
                 }
               }}
             />

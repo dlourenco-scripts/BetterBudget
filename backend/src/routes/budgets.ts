@@ -223,6 +223,94 @@ function toCycle(row: CycleRow) {
   };
 }
 
+async function getCycleDebtPayments(cycleId: string) {
+  const result = await db.query(
+    `SELECT target_id, amount
+     FROM allocations
+     WHERE budget_cycle_id = $1
+       AND target_type = 'debt_payment'
+       AND source = 'cycle_debt_payment'`,
+    [cycleId],
+  );
+
+  return result.rows.reduce((next: Record<string, number>, row: any) => {
+    if (row.target_id) {
+      next[row.target_id] = Number(row.amount || 0);
+    }
+    return next;
+  }, {});
+}
+
+async function applyMaturedDebtPayments(budgetId: string) {
+  const today = new Date().toISOString().slice(0, 10);
+  const client = await db.connect();
+
+  try {
+    await client.query('BEGIN');
+    const allocations = await client.query(
+      `SELECT a.id, a.target_id, a.amount
+       FROM allocations a
+       JOIN budget_cycles c ON c.id = a.budget_cycle_id
+       WHERE c.budget_id = $1
+         AND c.cycle_end < $2
+         AND a.target_type = 'debt_payment'
+         AND a.source = 'cycle_debt_payment'
+         AND a.applied_at IS NULL
+       ORDER BY c.cycle_index ASC, a.created_at ASC`,
+      [budgetId, today],
+    );
+
+    for (const allocation of allocations.rows) {
+      const paymentAmount = Math.max(0, Number(allocation.amount || 0));
+      if (!allocation.target_id || paymentAmount <= 0) {
+        await client.query(
+          'UPDATE allocations SET applied_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+          [allocation.id],
+        );
+        continue;
+      }
+
+      const debtResult = await client.query(
+        `SELECT id, balance, status
+         FROM debts
+         WHERE id = $1 AND budget_id = $2
+         FOR UPDATE`,
+        [allocation.target_id, budgetId],
+      );
+      const debt = debtResult.rows[0];
+      const status = String(debt?.status || 'active').toLowerCase();
+      if (!debt || ['paid_off', 'archived'].includes(status)) {
+        await client.query(
+          'UPDATE allocations SET applied_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+          [allocation.id],
+        );
+        continue;
+      }
+
+      const nextBalance = Math.max(0, Number(debt.balance || 0) - paymentAmount);
+      await client.query(
+        `UPDATE debts
+         SET balance = $1,
+           status = $2,
+           updated_at = CURRENT_TIMESTAMP
+         WHERE id = $3`,
+        [nextBalance, nextBalance <= 0 ? 'paid_off_pending' : debt.status, debt.id],
+      );
+      await client.query(
+        'UPDATE allocations SET applied_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1',
+        [allocation.id],
+      );
+    }
+
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 function toIncome(row: any) {
   return {
     id: row.id,
@@ -437,6 +525,7 @@ async function syncCycleTotals(budget: ReturnType<typeof toBudget>, cycle: Cycle
 
 async function loadCycles(budget: ReturnType<typeof toBudget>) {
   await ensureBudgetCycles(budget);
+  await applyMaturedDebtPayments(budget.id);
   const today = new Date().toISOString().slice(0, 10);
   await db.query(
     `UPDATE budget_cycles
@@ -453,20 +542,24 @@ async function loadCycles(budget: ReturnType<typeof toBudget>) {
     'SELECT * FROM budget_cycles WHERE budget_id = $1 ORDER BY cycle_index ASC',
     [budget.id],
   );
-  const syncedCycles: Awaited<ReturnType<typeof syncCycleTotals>>[] = [];
+  const syncedCycles: Array<Awaited<ReturnType<typeof syncCycleTotals>> & {debtPayments: Record<string, number>}> = [];
   for (const cycle of result.rows) {
-    syncedCycles.push(await syncCycleTotals(budget, cycle));
+    const syncedCycle = await syncCycleTotals(budget, cycle);
+    syncedCycles.push({
+      ...syncedCycle,
+      debtPayments: await getCycleDebtPayments(cycle.id),
+    });
   }
   return syncedCycles;
 }
 
 async function loadBudgetDetail(budget: ReturnType<typeof toBudget>) {
+  const cycles = await loadCycles(budget);
   const [incomes, expenses, debts] = await Promise.all([
     db.query('SELECT * FROM incomes WHERE budget_id = $1 ORDER BY created_at ASC', [budget.id]),
     db.query('SELECT * FROM expenses WHERE budget_id = $1 ORDER BY due_date ASC, created_at ASC', [budget.id]),
     db.query('SELECT * FROM debts WHERE budget_id = $1 ORDER BY priority ASC, created_at ASC', [budget.id]),
   ]);
-  const cycles = await loadCycles(budget);
   const today = new Date().toISOString().slice(0, 10);
   const currentCycle =
     cycles.find(cycle => cycle.cycleStart <= today && cycle.cycleEnd >= today) ||
@@ -735,6 +828,7 @@ router.patch(
   body('baseIncome').optional().isFloat({gt: 0}),
   body('goalAllocation').optional().isFloat({min: 0}),
   body('manualAdditionalIncome').optional().isFloat({min: 0}),
+  body('debtPayments').optional().isObject(),
   async (req: AuthRequest, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -766,19 +860,95 @@ router.patch(
         req.body.carryOverOut === undefined
           ? Number(cycle.carry_over_out || 0)
           : Number(req.body.carryOverOut || 0);
+      const nextBaseIncome =
+        req.body.baseIncome === undefined ? null : Number(req.body.baseIncome);
+      const hasManualAdditionalIncome = Object.prototype.hasOwnProperty.call(
+        req.body,
+        'manualAdditionalIncome',
+      );
+      const nextManualAdditionalIncome = hasManualAdditionalIncome
+        ? Number(req.body.manualAdditionalIncome || 0)
+        : Number(cycle.manual_additional_income || 0);
       const goalAllocation =
         req.body.goalAllocation === undefined
           ? Number(cycle.goal_allocation || 0)
           : Number(req.body.goalAllocation || 0);
-      const availableToCarry =
-        Number(cycle.remaining_amount || 0) +
-        Number(cycle.goal_allocation || 0) +
-        Number(cycle.carry_over_out || 0);
-      if (carryOverOut > availableToCarry) {
-        return res.status(400).json({
-          success: false,
-          message: 'Carry over cannot exceed remaining plus the amount set to save.',
-        });
+      const hasBaseIncome = Object.prototype.hasOwnProperty.call(req.body, 'baseIncome');
+
+      console.log('[CyclePatch] carry over validation input', {
+        budgetId: req.params.budgetId,
+        cycleId: req.params.cycleId,
+        body: req.body,
+        hasBaseIncome,
+        nextBaseIncome,
+        nextManualAdditionalIncome,
+        carryOverOut,
+        cycleCarryOverOut: cycle.carry_over_out,
+        validationBranch:
+          nextBaseIncome !== null || hasManualAdditionalIncome
+            ? 'incomeChanging'
+            : 'carryOverOut',
+      });
+
+      if (nextBaseIncome !== null) {
+        if (carryOverOut > nextBaseIncome) {
+          return res.status(400).json({
+            success: false,
+            message: 'Income cannot be less than the Carry Over amount.',
+          });
+        }
+      } else if (hasManualAdditionalIncome) {
+        const cycleStart = toIsoDate(cycle.cycle_start);
+        const cycleEnd = toIsoDate(cycle.cycle_end);
+        const [expenses, previousCycle] = await Promise.all([
+          db.query(
+            'SELECT * FROM expenses WHERE budget_id = $1 AND due_date <= $2 ORDER BY due_date ASC, created_at ASC',
+            [budget.id, cycleEnd],
+          ),
+          db.query<CycleRow>(
+            `SELECT carry_over_out FROM budget_cycles
+             WHERE budget_id = $1 AND cycle_index = $2`,
+            [budget.id, cycle.cycle_index - 1],
+          ),
+        ]);
+        const expenseItems = expenses.rows
+          .map(row => {
+            const cycleDueDate = getExpenseCycleDate(row, cycleStart, cycleEnd);
+            return cycleDueDate ? {...toExpense(row), dueDate: cycleDueDate} : null;
+          })
+          .filter(Boolean);
+        const savedBaseIncome = Number(cycle.base_income || 0);
+        const baseIncome =
+          nextBaseIncome !== null
+            ? nextBaseIncome
+            : savedBaseIncome > 0
+              ? savedBaseIncome
+              : budget.netPay;
+        const carryOverIn = Number(previousCycle.rows[0]?.carry_over_out || 0);
+        const totalExpenses = expenseItems.reduce(
+          (sum, item) => sum + Number(item?.amount || 0),
+          0,
+        );
+        const availableToCarry =
+          baseIncome + carryOverIn + nextManualAdditionalIncome - totalExpenses;
+
+        if (carryOverOut > availableToCarry) {
+          return res.status(400).json({
+            success: false,
+            message: 'Carry over cannot exceed remaining plus the amount set to save.',
+          });
+        }
+      } else {
+        const availableToCarry =
+          Number(cycle.remaining_amount || 0) +
+          Number(cycle.goal_allocation || 0) +
+          Number(cycle.carry_over_out || 0);
+        if (carryOverOut > availableToCarry) {
+          return res.status(400).json({
+            success: false,
+            message: 'Carry over cannot exceed remaining plus the amount set to save.',
+          });
+        }
       }
 
       await db.query(
@@ -791,14 +961,48 @@ router.patch(
          WHERE id = $5`,
         [
           carryOverOut,
-          req.body.baseIncome === undefined ? null : Number(req.body.baseIncome),
+          nextBaseIncome,
           goalAllocation,
-          req.body.manualAdditionalIncome === undefined
-            ? null
-            : Number(req.body.manualAdditionalIncome),
+          hasManualAdditionalIncome ? nextManualAdditionalIncome : null,
           cycle.id,
         ],
       );
+
+      if (req.body.debtPayments && typeof req.body.debtPayments === 'object') {
+        const debtPayments = req.body.debtPayments as Record<string, unknown>;
+        const debtIds = Object.keys(debtPayments);
+        if (debtIds.length > 0) {
+          const debtResult = await db.query(
+            'SELECT id FROM debts WHERE budget_id = $1 AND id = ANY($2::text[])',
+            [budget.id, debtIds],
+          );
+          const validDebtIds = new Set(debtResult.rows.map((row: any) => row.id));
+          for (const debtId of debtIds) {
+            if (!validDebtIds.has(debtId)) {
+              continue;
+            }
+
+            const amount = Math.max(0, Number(debtPayments[debtId] || 0));
+            await db.query(
+              `DELETE FROM allocations
+               WHERE budget_cycle_id = $1
+                 AND target_type = 'debt_payment'
+                 AND target_id = $2
+                 AND source = 'cycle_debt_payment'
+                 AND applied_at IS NULL`,
+              [cycle.id, debtId],
+            );
+            if (amount > 0) {
+              await db.query(
+                `INSERT INTO allocations
+                  (id, budget_cycle_id, target_type, target_id, amount, source, notes)
+                 VALUES ($1, $2, 'debt_payment', $3, $4, 'cycle_debt_payment', $5)`,
+                [uuidv4(), cycle.id, debtId, amount, 'Debt payment for this budget cycle'],
+              );
+            }
+          }
+        }
+      }
 
       const cycles = await loadCycles(budget);
       const updatedCycle = cycles.find(item => item.id === cycle.id);

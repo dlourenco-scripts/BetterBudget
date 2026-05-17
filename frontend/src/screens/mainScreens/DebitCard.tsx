@@ -2,6 +2,7 @@ import React, {useCallback, useState} from 'react';
 import {Alert, Image, Pressable, ScrollView, StyleSheet, View} from 'react-native';
 import dayjs from 'dayjs';
 import {useFocusEffect, useLocalSearchParams} from 'expo-router';
+import {Feather} from '@expo/vector-icons';
 import {Calendar} from 'react-native-calendars';
 import {BottomSheet, Button, Header, Spacer, Text, TextInput, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
@@ -389,7 +390,11 @@ const DebitCard = () => {
                     }}
                     style={styles.categoryItem}>
                     <View style={[styles.categoryIconWrap, {backgroundColor: color.primary}]}>
-                      <Image source={item.icon} style={styles.categoryIcon} />
+                      {item.vectorIcon ? (
+                        <Feather name={item.vectorIcon as any} size={20} color={color.black} />
+                      ) : (
+                        <Image source={item.icon} style={styles.categoryIcon} />
+                      )}
                     </View>
                     <Text
                       size={11}

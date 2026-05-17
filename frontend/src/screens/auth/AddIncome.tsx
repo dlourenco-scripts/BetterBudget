@@ -56,6 +56,13 @@ const getCycleEnd = (startDate: string, frequency: string) => {
   return date.toISOString().slice(0, 10);
 };
 
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const AddIncome = () => {
   const {
     fromHome,
@@ -304,7 +311,7 @@ const AddIncome = () => {
             onValueChange={toggleSwitch}
             value={isEnabled}
             style={{
-              transform: [{scaleX: 0.6}, {scaleY: 0.6}],
+              transform: [{scaleX: 0.85}, {scaleY: 0.85}],
             }}
           />
           <TouchableOpacity onPress={() => setShowAutoAddInfo(true)}>
@@ -560,7 +567,7 @@ const AddIncome = () => {
         hideTitleLine={true}
         backgroundColor={color.inputField}>
         <Calendar
-          minDate={new Date().toISOString().slice(0, 10)}
+          minDate={getLocalDateString()}
           onDayPress={day => {
             setSelectedDate(day.dateString);
             setShowCalendarSheet(false);
@@ -571,7 +578,7 @@ const AddIncome = () => {
               Array.from({length: 8}, (_, i) => {
                 const date = new Date();
                 date.setDate(date.getDate() + i);
-                const dateString = date.toISOString().split('T')[0];
+                const dateString = getLocalDateString(date);
                 return [
                   dateString,
                   {

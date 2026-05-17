@@ -22,6 +22,7 @@ const CreateProfle = () => {
   const [selectedGoal, setSelectedGoal] = useState<string>('');
   const [fullName, setFullName] = useState('');
   const [savingsGoal, setSavingsGoal] = useState('');
+  const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const color = useThemeColor();
   const updateUserData = useAuthStore(state => state.updateUserData);
@@ -43,6 +44,15 @@ const CreateProfle = () => {
   };
 
   const handleGetStarted = async () => {
+    setSubmitted(true);
+    if (
+      !fullName.trim() ||
+      !selectedGoal ||
+      (selectedGoal === 'savings' && !savingsGoal.trim())
+    ) {
+      return;
+    }
+
     setSaving(true);
     try {
       const response = await userApi.update({
@@ -111,6 +121,8 @@ const CreateProfle = () => {
         placeholder="Enter your full name"
         value={fullName}
         onChangeText={setFullName}
+        error="Name is required"
+        touched={submitted && !fullName.trim()}
       />
       <Spacer height={40} />
       <Text
@@ -136,6 +148,8 @@ const CreateProfle = () => {
             alignItems: 'center',
             backgroundColor:
               selectedGoal === 'savings' ? color.bg : color.tabBackground,
+            borderWidth: submitted && !selectedGoal ? 1 : 0,
+            borderColor: color.errortext || '#FF4D4F',
             borderTopLeftRadius: widthPixel(18),
             borderBottomLeftRadius: widthPixel(18),
             padding: widthPixel(10),
@@ -157,7 +171,9 @@ const CreateProfle = () => {
             alignItems: 'center',
             borderTopRightRadius: widthPixel(18),
             borderBottomRightRadius: widthPixel(18),
-            borderColor: color.tabiconFocus,
+            borderColor:
+              submitted && !selectedGoal ? color.errortext || '#FF4D4F' : color.tabiconFocus,
+            borderWidth: submitted && !selectedGoal ? 1 : 0,
             backgroundColor:
               selectedGoal === 'debt' ? color.bg : color.tabBackground,
             padding: widthPixel(10),
@@ -174,6 +190,17 @@ const CreateProfle = () => {
           <Text>Pay Off Debt</Text>
         </TouchableOpacity>
       </View>
+      {submitted && !selectedGoal ? (
+        <>
+          <Spacer height={5} />
+          <Text
+            size={14}
+            color={color.errortext || '#FF4D4F'}
+            style={{marginHorizontal: widthPixel(13)}}>
+            Primary goal is required
+          </Text>
+        </>
+      ) : null}
       <Spacer height={10} />
       {selectedGoal === 'savings' ? (
         <TextInput
@@ -184,6 +211,8 @@ const CreateProfle = () => {
           useCurrencyIcon={true}
           value={savingsGoal}
           onChangeText={setSavingsGoal}
+          error="Savings goal is required"
+          touched={submitted && selectedGoal === 'savings' && !savingsGoal.trim()}
         />
       ) : null}
       <FullFlex />

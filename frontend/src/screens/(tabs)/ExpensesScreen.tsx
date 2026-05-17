@@ -32,10 +32,11 @@ interface ExpenseItem {
   type?: string;
   dueDate?: string;
   category?: string;
+  paySource?: string;
   frequency?: string;
 }
 
-type ExpenseEditPanel = 'form' | 'date' | 'category';
+type ExpenseEditPanel = 'form' | 'date' | 'category' | 'paySource' | 'newPaySource';
 
 const formatOrdinalDay = (dateValue?: string) => {
   const date = dayjs(dateValue);
@@ -58,9 +59,8 @@ const formatOrdinalDay = (dateValue?: string) => {
 };
 
 const formatAmount = (amount: number | string | undefined | null) =>
-  Number(amount || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
+  Math.round(Number(amount || 0)).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
   });
 
 const ExpensesScreen = () => {
@@ -78,8 +78,12 @@ const ExpensesScreen = () => {
   const [selectedItem, setSelectedItem] = useState<ExpenseItem | null>(null);
   const [editName, setEditName] = useState('');
   const [editAmount, setEditAmount] = useState('');
+  const [replaceEditAmountOnInput, setReplaceEditAmountOnInput] = useState(false);
   const [editDueDate, setEditDueDate] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [editPaySource, setEditPaySource] = useState('');
+  const [editNewPaySource, setEditNewPaySource] = useState('');
+  const [customPaySources, setCustomPaySources] = useState<string[]>([]);
   const [editExpenseType, setEditExpenseType] = useState('Fixed');
   const [expenseEditPanel, setExpenseEditPanel] = useState<ExpenseEditPanel>('form');
   const userEmail = useAuthStore(state => state.userData?.email);
@@ -126,6 +130,7 @@ const ExpensesScreen = () => {
             type: expense.type,
             dueDate: expense.dueDate,
             category: expense.category,
+            paySource: expense.notes?.trim() || '',
             frequency: expense.frequency,
           })),
       );
@@ -147,11 +152,25 @@ const ExpensesScreen = () => {
       loadExpenses();
       return () => {
         closeOpenSwipeable();
+        setIsSelectionMode(false);
+        setSelectedIds(new Set());
+        setShowExpenseDetails(false);
+        setIsEditingDetails(false);
+        setExpenseEditPanel('form');
+        setSelectedItem(null);
       };
     }, [closeOpenSwipeable, loadExpenses]),
   );
 
   const allItems = [...expenses, ...debts];
+  const paymentSourceOptions = Array.from(
+    new Set(
+      [
+        ...customPaySources,
+        ...expenses.map(expense => expense.paySource?.trim()),
+      ].filter((source): source is string => !!source && source !== 'Unassigned'),
+    ),
+  );
 
   const handleLongPress = (item: ExpenseItem) => {
     setIsSelectionMode(true);
@@ -260,9 +279,11 @@ const ExpensesScreen = () => {
     }
 
     setEditName(item.title);
-    setEditAmount(String(Number(item.value || 0)));
+    setEditAmount(String(Math.round(Number(item.value || 0))));
+    setReplaceEditAmountOnInput(true);
     setEditDueDate(item.dueDate || '');
     setEditCategory(item.category || '');
+    setEditPaySource(item.paySource || '');
     setEditExpenseType(
       String(item.type || '').toLowerCase().includes('variable')
         ? 'Variable'
@@ -270,6 +291,25 @@ const ExpensesScreen = () => {
     );
     setExpenseEditPanel('form');
     setIsEditingDetails(true);
+  };
+
+  const handleEditAmountChange = (value: string) => {
+    const cleanedValue = value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+    if (!replaceEditAmountOnInput) {
+      setEditAmount(cleanedValue);
+      return;
+    }
+
+    setReplaceEditAmountOnInput(false);
+    if (!cleanedValue || cleanedValue.length < editAmount.length) {
+      setEditAmount('');
+      return;
+    }
+
+    const enteredValue = cleanedValue.startsWith(editAmount)
+      ? cleanedValue.slice(editAmount.length)
+      : cleanedValue.slice(-1);
+    setEditAmount(enteredValue.replace(/[^0-9.]/g, ''));
   };
 
   const openEditForItem = (item: ExpenseItem) => {
@@ -289,8 +329,8 @@ const ExpensesScreen = () => {
       return;
     }
 
-    if (selectedItem.kind === 'expense' && !editDueDate.trim()) {
-      Alert.alert('Missing expense details', 'Enter a name, amount, and due date.');
+    if (selectedItem.kind === 'expense' && (!editDueDate.trim() || !editPaySource.trim())) {
+      Alert.alert('Missing expense details', 'Enter a name, amount, due date, and pay source.');
       return;
     }
 
@@ -306,6 +346,7 @@ const ExpensesScreen = () => {
               amount,
               dueDate: editDueDate.trim(),
               category: editCategory.trim() || 'General',
+              notes: editPaySource.trim(),
               frequency: selectedItem.frequency || 'Every Pay Cycle',
               type: editExpenseType,
             });
@@ -658,9 +699,53 @@ const ExpensesScreen = () => {
           setExpenseEditPanel('form');
           setSelectedItem(null);
         }}
-        title={selectedItem?.kind === 'debt' ? 'Debt Details' : 'Expense Details'}
-        hideTitleLine={true}
-        backgroundColor={color.inputField}>
+        title={
+          isEditingDetails && expenseEditPanel === 'category'
+            ? 'Select Category'
+            : selectedItem?.kind === 'debt'
+              ? 'Debt Details'
+              : 'Expense Details'
+        }
+        hideTitleLine={isEditingDetails && expenseEditPanel === 'category' ? false : true}
+        headerLeft={
+          isEditingDetails && expenseEditPanel === 'category' ? (
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setExpenseEditPanel('form')}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: widthPixel(4),
+              }}>
+              <Feather name="chevron-left" size={22} color={color.black} />
+              <Text size={14} variant="medium" color={color.black}>
+                Back
+              </Text>
+            </TouchableOpacity>
+          ) : null
+        }
+        backgroundColor={color.inputField}
+        footer={
+          selectedItem && isEditingDetails && expenseEditPanel === 'form' ? (
+            <View style={{gap: heightPixel(10)}}>
+              <Button
+                title="Save"
+                style={styles.modalActionButton}
+                onPress={handleSaveDetails}
+              />
+              <Button
+                title="Cancel"
+                variant="outline"
+                style={styles.modalActionButton}
+                titleStyle={{color: color.primary}}
+                onPress={() => {
+                  setExpenseEditPanel('form');
+                  setIsEditingDetails(false);
+                }}
+              />
+            </View>
+          ) : null
+        }>
         <Spacer height={heightPixel(20)} />
         {selectedItem && !isEditingDetails && (
           <View style={{gap: heightPixel(12), marginBottom: heightPixel(35)}}>
@@ -674,6 +759,7 @@ const ExpensesScreen = () => {
                 ? [
                     ['Due Date', selectedItem.dueDate || selectedItem.subText || 'Not set'],
                     ['Category', selectedItem.category || 'General'],
+                    ['Pay Source', selectedItem.paySource?.trim() || 'Unassigned'],
                     ['Fixed / Variable', selectedItem.type || 'Fixed'],
                   ]
                 : []),
@@ -761,7 +847,11 @@ const ExpensesScreen = () => {
                         }}
                         style={styles.categoryItem}>
                         <View style={[styles.categoryIconWrap, {backgroundColor: color.primary}]}>
-                          <Image source={item.icon} style={styles.categoryIcon} />
+                          {item.vectorIcon ? (
+                            <Feather name={item.vectorIcon as any} size={20} color={color.black} />
+                          ) : (
+                            <Image source={item.icon} style={styles.categoryIcon} />
+                          )}
                         </View>
                         <Text
                           size={11}
@@ -787,6 +877,102 @@ const ExpensesScreen = () => {
           </View>
         )}
 
+        {selectedItem && isEditingDetails && expenseEditPanel === 'paySource' && (
+          <View style={{gap: heightPixel(10), marginBottom: heightPixel(35)}}>
+            <Text size={18} variant="medium" color={color.black} style={{textAlign: 'center'}}>
+              Select Pay Source
+            </Text>
+            <Spacer height={heightPixel(4)} />
+            {paymentSourceOptions.map(source => (
+              <TouchableOpacity
+                key={source}
+                activeOpacity={0.8}
+                onPress={() => {
+                  setEditPaySource(source);
+                  setExpenseEditPanel('form');
+                }}
+                style={{
+                  borderWidth: 1,
+                  borderColor: color.primary,
+                  borderRadius: 10,
+                  paddingHorizontal: widthPixel(14),
+                  paddingVertical: heightPixel(12),
+                }}>
+                <Text size={15} color={color.black} variant="medium">
+                  {source}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {paymentSourceOptions.length === 0 && (
+              <Text size={14} color={color.tabicon} style={{textAlign: 'center'}}>
+                No payment sources yet.
+              </Text>
+            )}
+            <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => setExpenseEditPanel('newPaySource')}
+              style={{
+                borderWidth: 1,
+                borderColor: color.primary,
+                borderRadius: heightPixel(50),
+                paddingVertical: heightPixel(14),
+                marginTop: heightPixel(8),
+              }}>
+              <Text
+                size={15}
+                variant="medium"
+                color={color.primary}
+                style={{textAlign: 'center'}}>
+                Add New Payment Source
+              </Text>
+            </TouchableOpacity>
+            <Button
+              title="Cancel"
+              variant="outline"
+              style={styles.modalActionButton}
+              titleStyle={{color: color.primary}}
+              onPress={() => setExpenseEditPanel('form')}
+            />
+          </View>
+        )}
+
+        {selectedItem && isEditingDetails && expenseEditPanel === 'newPaySource' && (
+          <View style={{marginBottom: heightPixel(35)}}>
+            <TextInput
+              title="Payment Source"
+              placeholder="Enter Name"
+              value={editNewPaySource}
+              onChangeText={setEditNewPaySource}
+            />
+            <Spacer height={heightPixel(20)} />
+            <Button
+              title="Add Payment Source"
+              onPress={() => {
+                const trimmedSource = editNewPaySource.trim();
+                if (trimmedSource) {
+                  setCustomPaySources(previous =>
+                    previous.includes(trimmedSource) ? previous : [...previous, trimmedSource],
+                  );
+                  setEditPaySource(trimmedSource);
+                  setEditNewPaySource('');
+                  setExpenseEditPanel('form');
+                }
+              }}
+            />
+            <Spacer height={heightPixel(10)} />
+            <Button
+              title="Cancel"
+              variant="outline"
+              style={styles.modalActionButton}
+              titleStyle={{color: color.primary}}
+              onPress={() => {
+                setEditNewPaySource('');
+                setExpenseEditPanel('paySource');
+              }}
+            />
+          </View>
+        )}
+
         {selectedItem && isEditingDetails && expenseEditPanel === 'form' && (
           <View style={{gap: heightPixel(14), marginBottom: heightPixel(35)}}>
             <TextInput
@@ -795,13 +981,43 @@ const ExpensesScreen = () => {
               value={editName}
               onChangeText={setEditName}
             />
+            {selectedItem.kind === 'expense' && (
+              <View style={{flexDirection: 'row', gap: widthPixel(10)}}>
+                {[
+                  {label: 'Fixed', value: 'Fixed'},
+                  {label: 'Variable', value: 'Variable'},
+                ].map(option => (
+                  <TouchableOpacity
+                    key={option.label}
+                    activeOpacity={0.8}
+                    onPress={() => setEditExpenseType(option.value)}
+                    style={{
+                      flex: 1,
+                      borderRadius: 8,
+                      paddingVertical: heightPixel(11),
+                      alignItems: 'center',
+                      backgroundColor:
+                        editExpenseType === option.value ? color.primary : color.bg,
+                      borderWidth: 1,
+                      borderColor: color.primary,
+                    }}>
+                    <Text size={14} variant="medium" color={color.black}>
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
             <TextInput
               title="Amount"
               placeholder="0"
               keyboardType="numeric"
               useCurrencyIcon={true}
               value={editAmount}
-              onChangeText={setEditAmount}
+              selectTextOnFocus={false}
+              onFocus={() => setReplaceEditAmountOnInput(true)}
+              onBlur={() => setReplaceEditAmountOnInput(false)}
+              onChangeText={handleEditAmountChange}
             />
             {selectedItem.kind === 'expense' && (
               <>
@@ -822,50 +1038,17 @@ const ExpensesScreen = () => {
                   rightIcon={appImages.ArrowDown}
                   rightIconPress={() => setExpenseEditPanel('category')}
                 />
-                <View style={{flexDirection: 'row', gap: widthPixel(10)}}>
-                  {[
-                    {label: 'Fixed', value: 'Fixed'},
-                    {label: 'Variable', value: 'Variable'},
-                  ].map(option => (
-                    <TouchableOpacity
-                      key={option.label}
-                      activeOpacity={0.8}
-                      onPress={() => setEditExpenseType(option.value)}
-                      style={{
-                        flex: 1,
-                        borderRadius: 8,
-                        paddingVertical: heightPixel(11),
-                        alignItems: 'center',
-                        backgroundColor:
-                          editExpenseType === option.value ? color.primary : color.bg,
-                        borderWidth: 1,
-                        borderColor: color.primary,
-                      }}>
-                      <Text size={14} variant="medium" color={color.black}>
-                        {option.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                <TextInput
+                  title="Pay Source"
+                  placeholder="Select Pay Source"
+                  value={editPaySource}
+                  onPress={() => setExpenseEditPanel('paySource')}
+                  onFocus={() => setExpenseEditPanel('paySource')}
+                  rightIcon={appImages.ArrowDown}
+                  rightIconPress={() => setExpenseEditPanel('paySource')}
+                />
               </>
             )}
-            <Button
-              title="Save Changes"
-              variant="outline"
-              style={styles.modalActionButton}
-              titleStyle={{color: color.primary}}
-              onPress={handleSaveDetails}
-            />
-            <Button
-              title="Cancel"
-              variant="outline"
-              style={styles.modalActionButton}
-              titleStyle={{color: color.primary}}
-              onPress={() => {
-                setExpenseEditPanel('form');
-                setIsEditingDetails(false);
-              }}
-            />
           </View>
         )}
       </BottomSheet>

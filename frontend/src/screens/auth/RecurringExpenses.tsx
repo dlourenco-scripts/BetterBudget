@@ -3,6 +3,7 @@ import {
   Alert,
   FlatList,
   Image,
+  Keyboard,
   Modal,
   Platform,
   ScrollView,
@@ -97,11 +98,17 @@ const formatOrdinalDay = (dateValue?: string) => {
   return `${day}${suffix}`;
 };
 
-const formatAmount = (amount: number | string | undefined | null) =>
-  Number(amount || 0).toLocaleString(undefined, {
-    minimumFractionDigits: 2,
+const formatAmount = (amount: number | string | undefined | null) => {
+  const numericAmount = Number(amount || 0);
+  const isWholeAmount = Math.abs(numericAmount - Math.round(numericAmount)) < 0.005;
+
+  return numericAmount.toLocaleString(undefined, {
+    minimumFractionDigits: isWholeAmount ? 0 : 2,
     maximumFractionDigits: 2,
   });
+};
+
+const formatSuccessAmount = formatAmount;
 
 type SavedExpensePreview = {
   id: string;
@@ -149,8 +156,10 @@ const RecurringExpenses = () => {
   const [showRecurringSuccessSheet, setShowRecurringSuccessSheet] = useState(false);
   const [lastSavedRecurringExpense, setLastSavedRecurringExpense] =
     useState<SavedExpensePreview | null>(null);
+  const [formResetKey, setFormResetKey] = useState(0);
   const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
   const expenseNameInputRef = useRef<NativeTextInput>(null);
+  const recurringExpenseResetFormRef = useRef<((nextState?: any) => void) | null>(null);
   const openSavedExpenseSwipeableRef = useRef<Swipeable | null>(null);
   const savedExpenseSwipeableRefs = useRef<Record<string, Swipeable | null>>({});
 
@@ -205,6 +214,7 @@ const RecurringExpenses = () => {
 
   // Function to clear all form data
   const clearForm = (resetForm?: (nextState?: any) => void) => {
+    Keyboard.dismiss();
     setExpenseName('');
     setExpenseAmount('');
     setSelectedExpense('');
@@ -220,6 +230,7 @@ const RecurringExpenses = () => {
         submitCount: 0,
       });
     }
+    setFormResetKey(previous => previous + 1);
   };
 
   const formatDueDay = (dateValue?: string) => {
@@ -254,8 +265,13 @@ const RecurringExpenses = () => {
     },
     resetForm?: (nextState?: any) => void,
   ) => {
+    recurringExpenseResetFormRef.current = resetForm || null;
+    Keyboard.dismiss();
     if (!budgetId) {
       Alert.alert('No budget selected', 'Create or select a budget before adding expenses.');
+      return;
+    }
+    if (!selectedPaymentSource.trim()) {
       return;
     }
 
@@ -277,22 +293,19 @@ const RecurringExpenses = () => {
         return;
       }
 
-      const savedExpense = response.data?.id
-        ? response.data
-        : {
-            id: `${Date.now()}`,
-            name: values.expenseName,
-            amount: Number(values.expenseAmount),
-            category: values.selectedExpense,
-            dueDate: values.selectedDate,
-          };
+      const savedExpense = {
+        id: response.data?.id || `${Date.now()}`,
+        name: response.data?.name || values.expenseName,
+        amount: Number(response.data?.amount ?? values.expenseAmount),
+        category: response.data?.category || values.selectedExpense,
+        dueDate: response.data?.dueDate || response.data?.due_date || values.selectedDate,
+      };
       setSavedExpenses(previous => [...previous, savedExpense]);
       setLastSavedRecurringExpense(savedExpense);
       SNACKBARS.GreenSnackbar(
-        `Recurring expense added: ${savedExpense.name} • $${formatAmount(savedExpense.amount)} • Due ${formatDueDay(savedExpense.dueDate)}`,
+        `Recurring expense added: ${savedExpense.name} • $${formatSuccessAmount(savedExpense.amount)} • Due ${formatDueDay(savedExpense.dueDate)}`,
         {title: 'Saved', duration: 2500},
       );
-      clearForm(resetForm);
 
       if (fromHome === 'true') {
         setShowRecurringSuccessSheet(true);
@@ -385,6 +398,7 @@ const RecurringExpenses = () => {
         canGoBack={true}
       />
       <Formik
+        key={formResetKey}
         initialValues={{
           expenseName: expenseName,
           selectedExpense: selectedExpense,
@@ -403,6 +417,7 @@ const RecurringExpenses = () => {
           touched,
           setFieldValue,
           resetForm,
+          submitCount,
         }) => (
           <>
             <TextInput
@@ -416,7 +431,7 @@ const RecurringExpenses = () => {
               }}
               onBlur={handleBlur('expenseName')}
               error={errors.expenseName}
-              touched={touched.expenseName}
+              touched={submitCount > 0}
               titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
               inputContainerStyle={{
                 backgroundColor: color.inputField,
@@ -455,7 +470,7 @@ const RecurringExpenses = () => {
               editable={false}
               value={values.selectedExpense}
               error={errors.selectedExpense}
-              touched={touched.selectedExpense}
+              touched={submitCount > 0}
               rightIconStyle={{
                 tintColor: color.black,
               }}
@@ -471,6 +486,8 @@ const RecurringExpenses = () => {
               titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
               editable={false}
               value={selectedPaymentSource}
+              error="Payment method is required"
+              touched={submitCount > 0 && !selectedPaymentSource.trim()}
               inputContainerStyle={{
                 backgroundColor: color.inputField,
               }}
@@ -559,7 +576,7 @@ const RecurringExpenses = () => {
               }}
               onBlur={handleBlur('expenseAmount')}
               error={errors.expenseAmount}
-              touched={touched.expenseAmount}
+              touched={submitCount > 0}
               keyboardType="numeric"
               useCurrencyIcon={true}
               inputContainerStyle={{
@@ -606,7 +623,7 @@ const RecurringExpenses = () => {
                 setFieldValue('selectedDate', text);
               }}
               error={errors.selectedDate}
-              touched={touched.selectedDate}
+              touched={submitCount > 0}
               editable={false}
               inputContainerStyle={{
                 backgroundColor: color.inputField,
@@ -1221,8 +1238,8 @@ const RecurringExpenses = () => {
       <BottomSheet
         visible={showRecurringSuccessSheet}
         onClose={() => setShowRecurringSuccessSheet(false)}
-        title="Recurring expense added"
-        hideTitleLine={false}
+        title=""
+        hideTitleLine
         backgroundColor={color.inputField}
         maxHeight={320}>
         <View style={styles.successSheetContent}>
@@ -1231,7 +1248,7 @@ const RecurringExpenses = () => {
           </Text>
           {lastSavedRecurringExpense && (
             <Text size={15} variant="medium" color={color.black} style={{textAlign: 'center'}}>
-              {lastSavedRecurringExpense.name} • ${formatAmount(lastSavedRecurringExpense.amount)} • Due{' '}
+              {lastSavedRecurringExpense.name} • ${formatSuccessAmount(lastSavedRecurringExpense.amount)} • Due{' '}
               {formatDueDay(lastSavedRecurringExpense.dueDate) || '-'}
             </Text>
           )}
@@ -1239,6 +1256,7 @@ const RecurringExpenses = () => {
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={() => {
+                clearForm(recurringExpenseResetFormRef.current || undefined);
                 setShowRecurringSuccessSheet(false);
               }}
               style={[

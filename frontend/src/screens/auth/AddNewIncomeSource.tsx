@@ -20,6 +20,10 @@ import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 
 const AddNewIncomeSource = () => {
   const [showexpenseInfo, setShowexpenseInfo] = useState(false);
+  const [incomeSourceName, setIncomeSourceName] = useState('');
+  const [reserveAmount, setReserveAmount] = useState('');
+  const [currentSavings, setCurrentSavings] = useState('');
+  const [submitted, setSubmitted] = useState(false);
   const {fromHome, fromBudgetCreation, fromCopyExpenses} =
     useLocalSearchParams<{
       fromHome?: string;
@@ -49,6 +53,10 @@ const AddNewIncomeSource = () => {
           fontFamily: 'regular',
         }}
         placeholder="Home budget"
+        value={incomeSourceName}
+        onChangeText={setIncomeSourceName}
+        error="Income source is required"
+        touched={submitted && !incomeSourceName.trim()}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -67,6 +75,10 @@ const AddNewIncomeSource = () => {
         keyboardType="numeric"
         useCurrencyIcon={true}
         placeholder="0"
+        value={reserveAmount}
+        onChangeText={setReserveAmount}
+        error="Balance to keep is required"
+        touched={submitted && !reserveAmount.trim()}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -82,6 +94,10 @@ const AddNewIncomeSource = () => {
         keyboardType="numeric"
         useCurrencyIcon={true}
         placeholder="0"
+        value={currentSavings}
+        onChangeText={setCurrentSavings}
+        error="Current savings is required"
+        touched={submitted && !currentSavings.trim()}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -90,15 +106,19 @@ const AddNewIncomeSource = () => {
       <FullFlex />
       <Button
         title="Next"
-        onPress={() =>
+        onPress={() => {
+          setSubmitted(true);
+          if (!incomeSourceName.trim() || !reserveAmount.trim() || !currentSavings.trim()) {
+            return;
+          }
           router.push({
             pathname: '/auth/AddIncome',
             params: {
               fromBudgetCreation: fromBudgetCreation,
               fromCopyExpenses: fromCopyExpenses,
             },
-          })
-        }
+          });
+        }}
       />
 
       <InfoTooltip

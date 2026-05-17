@@ -15,6 +15,7 @@ export const expenseCategoryGroups = [
       {icon: appImages.Medical, label: 'Medical & Health Care'},
       {icon: appImages.Subscription, label: 'Subscriptions'},
       {icon: appImages.Insurance, label: 'Insurance'},
+      {vectorIcon: 'more-horizontal', label: 'Miscellaneous'},
     ],
   },
   {

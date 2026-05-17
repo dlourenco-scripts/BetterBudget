@@ -188,6 +188,12 @@ const formatNotificationAmount = (currencySymbol: string, amount: number | strin
     maximumFractionDigits: 0,
   })}`;
 
+const reviewedCycleStorageKey = (email: string | undefined, budgetId: string) =>
+  `betterbudget.reviewedCycle.${email || 'default'}.${budgetId}`;
+
+const getCycleIndexValue = (cycle: any) =>
+  Number(cycle?.cycleIndex ?? cycle?.cycle_index ?? 0);
+
 const getManualAppliedAmount = (income: any, cycleId?: string) => {
   if (!cycleId) {
     return 0;
@@ -258,6 +264,10 @@ const HomeScreen = () => {
   const {openAdditionalIncomeId, openAdditionalIncomeCycleId} = useLocalSearchParams<{
     openAdditionalIncomeId?: string;
     openAdditionalIncomeCycleId?: string;
+    openAdditionalIncomeRequestId?: string;
+  }>();
+  const {openAdditionalIncomeRequestId} = useLocalSearchParams<{
+    openAdditionalIncomeRequestId?: string;
   }>();
   const routeOpenAdditionalIncomeId = Array.isArray(openAdditionalIncomeId)
     ? openAdditionalIncomeId[0]
@@ -265,6 +275,9 @@ const HomeScreen = () => {
   const routeOpenAdditionalIncomeCycleId = Array.isArray(openAdditionalIncomeCycleId)
     ? openAdditionalIncomeCycleId[0]
     : openAdditionalIncomeCycleId;
+  const routeOpenAdditionalIncomeRequestId = Array.isArray(openAdditionalIncomeRequestId)
+    ? openAdditionalIncomeRequestId[0]
+    : openAdditionalIncomeRequestId;
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const {currencySymbol} = useCurrency();
@@ -308,8 +321,10 @@ const HomeScreen = () => {
   const userData = useAuthStore(state => state.userData);
   const userEmail = userData?.email;
   const primaryBudgetStorageKey = `betterbudget.primaryBudgetId.${userEmail || 'default'}`;
+  const activeBudgetStorageKey = `betterbudget.activeBudgetId.${userEmail || 'default'}`;
 
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [hasLoadedBudgetList, setHasLoadedBudgetList] = useState(false);
   const [budgetDetails, setBudgetDetails] = useState<any[]>([]);
   const [primaryBudgetId, setPrimaryBudgetId] = useState<string>('');
   const [selectedBudgetId, setSelectedBudgetId] = useState<string>('');
@@ -328,6 +343,11 @@ const HomeScreen = () => {
   const [dismissedAdditionalIncomeIds, setDismissedAdditionalIncomeIds] = useState<string[]>([]);
   const [additionalIncomeExpandedByView, setAdditionalIncomeExpandedByView] =
     useState<Record<string, boolean>>({});
+  const [missedCyclePrompt, setMissedCyclePrompt] = useState<{
+    budgetId: string;
+    cycleId: string;
+    cycleIndex: number;
+  } | null>(null);
   const activeBudget =
     budgetDetails.find(budget => budget.id === selectedBudgetId) ||
     budgetDetails[0];
@@ -371,6 +391,19 @@ const HomeScreen = () => {
           .map(id => debts.find((debt: any) => debt.id === id))
           .filter(Boolean)
       : debts;
+
+  useEffect(() => {
+    if (paidOffDebt || showAdjustDebtBalance) {
+      return;
+    }
+    const pendingPaidOffDebt = debts.find((debt: any) => {
+      const status = String(debt.status || '').toLowerCase();
+      return status === 'paid_off_pending' && Number(debt.balance || 0) <= 0;
+    });
+    if (pendingPaidOffDebt) {
+      setPaidOffDebt(pendingPaidOffDebt);
+    }
+  }, [debts, paidOffDebt, showAdjustDebtBalance]);
   const incomeFromItems = incomes.reduce(
     (sum: number, item: any) => sum + Number(item.amount || 0),
     0,
@@ -505,18 +538,30 @@ const HomeScreen = () => {
       return;
     }
 
+    const existingNotification = notifications.find(
+      notification =>
+        notification.id === manualNotificationId(selectedManualAdditionalIncome.id, activeCycle.id),
+    );
+    const computedRemainingAmount = getManualRemainingAmount(
+      selectedManualAdditionalIncome,
+      activeCycle.id,
+    );
+    const notificationRemainingAmount = existingNotification?.payload?.amount
+      ? Math.min(Number(existingNotification.payload.amount || 0), computedRemainingAmount)
+      : computedRemainingAmount;
+
     addNotification({
       id: manualNotificationId(selectedManualAdditionalIncome.id, activeCycle.id),
       type: 'additional_income',
       action: 'open_additional_income',
       dedupeKey: manualNotificationId(selectedManualAdditionalIncome.id, activeCycle.id),
       title: 'Additional income available',
-      message: `${formatNotificationAmount(currencySymbol, getManualRemainingAmount(selectedManualAdditionalIncome, activeCycle.id))} from ${selectedManualAdditionalIncome.name || 'Additional income'} is ready to be added to your budget.`,
+      message: `${formatNotificationAmount(currencySymbol, notificationRemainingAmount)} from ${selectedManualAdditionalIncome.name || 'Additional income'} is ready to be added to your budget.`,
       payload: {
         budgetId: activeBudgetId,
         cycleId: activeCycle?.id,
         incomeId: selectedManualAdditionalIncome.id,
-        amount: getManualRemainingAmount(selectedManualAdditionalIncome, activeCycle.id),
+        amount: notificationRemainingAmount,
         payDate: getAdditionalIncomeDuePayDate(selectedManualAdditionalIncome, activeCycle)?.format('YYYY-MM-DD'),
       },
     });
@@ -678,6 +723,7 @@ const HomeScreen = () => {
     isPastCycle,
     notificationManualAdditionalIncome?.id,
     routeOpenAdditionalIncomeId,
+    routeOpenAdditionalIncomeRequestId,
   ]);
 
   useEffect(() => {
@@ -739,9 +785,34 @@ const HomeScreen = () => {
     }
   };
 
+  useEffect(() => {
+    if (!activeBudgetId) {
+      return;
+    }
+    AsyncStorage.setItem(activeBudgetStorageKey, activeBudgetId).catch(error => {
+      console.error('Unable to store active budget id:', error);
+    });
+  }, [activeBudgetId, activeBudgetStorageKey]);
+
   const handlePrimaryBudgetChange = async (budgetId: string) => {
     setPrimaryBudgetId(budgetId);
     await AsyncStorage.setItem(primaryBudgetStorageKey, budgetId);
+  };
+
+  const handleBudgetRename = async (budgetId: string, name: string) => {
+    try {
+      const response = await budgetApi.update(budgetId, {name});
+      if (!response.success) {
+        Alert.alert('Unable to rename budget', response.message || 'Please try again.');
+        return false;
+      }
+
+      await loadBudgets();
+      return true;
+    } catch (error: any) {
+      Alert.alert('Unable to rename budget', error?.message || 'Please try again.');
+      return false;
+    }
   };
 
   const handleAutoFillChange = async (enabled: boolean) => {
@@ -801,6 +872,10 @@ const HomeScreen = () => {
         Alert.alert('Invalid income', 'Income cannot be negative.');
         return false;
       }
+      if (amount === 0) {
+        Alert.alert('Invalid income', 'Please enter an income amount greater than 0.');
+        return false;
+      }
 
       const carryOverOut = Number(activeCycle.carryOverOut || 0);
       if (amount < carryOverOut) {
@@ -817,6 +892,15 @@ const HomeScreen = () => {
         Number(activeCycle.goalAllocation || 0) -
         carryOverOut;
       const shouldWarnCarryOverNegative = carryOverOut > 0 && nextRemaining < 0;
+
+      console.log('[EditIncome] submitting income update', {
+        activeBudgetId,
+        activeCycleId: activeCycle.id,
+        amount,
+        payload: applyToAll ? {netPay: amount} : {baseIncome: amount},
+        activeCycleCarryOverOut: activeCycle.carryOverOut,
+        activeCycleBaseIncome: activeCycle.baseIncome,
+      });
 
       const response = applyToAll
         ? await budgetApi.update(activeBudgetId, {netPay: amount})
@@ -1324,23 +1408,11 @@ const HomeScreen = () => {
 
     debtSaveTimers.current[debt.id] = setTimeout(async () => {
       try {
-        const paymentAmount = Number(sanitized || 0);
-        const startingBalance = Number(debt.balance || 0);
-        const nextBalance = Math.max(0, startingBalance - paymentAmount);
-        const isPaidOff = paymentAmount > 0 && nextBalance <= 0;
-        const debtResponse = await budgetApi.updateDebt(activeBudgetId, debt.id, {
-          balance: nextBalance,
-          minimumPayment: Number(sanitized || 0),
-          ...(isPaidOff ? {status: 'paid_off_pending'} : {}),
-        });
-
-        if (!debtResponse.success) {
-          Alert.alert('Unable to save debt amount', debtResponse.message || 'Please try again.');
-          return;
-        }
-
         const cycleResponse = await budgetApi.updateCycle(activeBudgetId, activeCycle.id, {
           goalAllocation: nextGoalAllocation,
+          debtPayments: Object.fromEntries(
+            Object.entries(nextInputs).map(([debtId, value]) => [debtId, Number(value || 0)]),
+          ),
         });
 
         if (!cycleResponse.success) {
@@ -1349,13 +1421,6 @@ const HomeScreen = () => {
         }
 
         await loadBudgets();
-        if (isPaidOff) {
-          setPaidOffDebt({
-            ...debt,
-            ...debtResponse.data,
-            balance: 0,
-          });
-        }
         setSavedDebtIds(prev => new Set(prev).add(debt.id));
         if (debtSavedTimers.current[debt.id]) {
           clearTimeout(debtSavedTimers.current[debt.id]);
@@ -1396,6 +1461,28 @@ const HomeScreen = () => {
       await loadBudgets();
     } catch (error: any) {
       Alert.alert('Unable to mark paid off', error?.message || 'Please try again.');
+    }
+  };
+
+  const deletePaidOffDebt = async () => {
+    if (isPastCycle) {
+      Alert.alert('Read only', readOnlyPastCycleMessage);
+      return;
+    }
+    if (!activeBudgetId || !paidOffDebt?.id) {
+      return;
+    }
+
+    try {
+      const response = await budgetApi.deleteDebt(activeBudgetId, paidOffDebt.id);
+      if (!response.success) {
+        Alert.alert('Unable to delete debt', response.message || 'Please try again.');
+        return;
+      }
+      setPaidOffDebt(null);
+      await loadBudgets();
+    } catch (error: any) {
+      Alert.alert('Unable to delete debt', error?.message || 'Please try again.');
     }
   };
 
@@ -1479,18 +1566,55 @@ const HomeScreen = () => {
   };
 
   const loadBudgets = useCallback(async () => {
+    if (!token) {
+      return;
+    }
+
     try {
       const response = await budgetApi.list();
+      if (response.success === false || !Array.isArray(response.data)) {
+        console.warn('Unable to load budget list:', response.message || 'Invalid budget response.');
+        return;
+      }
       const budgetList = response.data || [];
-      setBudgets(budgetList.map((budget: any) => ({id: budget.id, name: budget.name})));
+      setHasLoadedBudgetList(true);
+      const budgetSummaries = budgetList.map((budget: any) => ({
+        id: budget.id,
+        name: budget.name,
+      }));
+      setBudgets(budgetSummaries);
 
       if (budgetList.length === 0) {
         setBudgetDetails([]);
         setSelectedBudgetId('');
         setSelectedCycleId('');
         setPrimaryBudgetId('');
+        setHasLoadedBudgetList(true);
         return;
       }
+
+      const storedPrimaryBudgetId = await AsyncStorage.getItem(primaryBudgetStorageKey);
+      const selectedId =
+        pendingSelectedBudgetId &&
+        budgetList.some((budget: any) => budget.id === pendingSelectedBudgetId)
+          ? pendingSelectedBudgetId
+          : selectedBudgetId && budgetList.some((budget: any) => budget.id === selectedBudgetId)
+          ? selectedBudgetId
+          : storedPrimaryBudgetId &&
+              budgetList.some((budget: any) => budget.id === storedPrimaryBudgetId)
+            ? storedPrimaryBudgetId
+            : budgetList[0]?.id || '';
+      const nextPrimaryId =
+        storedPrimaryBudgetId &&
+        budgetList.some((budget: any) => budget.id === storedPrimaryBudgetId)
+          ? storedPrimaryBudgetId
+          : selectedId;
+
+      setSelectedBudgetId(selectedId);
+      if (pendingSelectedBudgetId && selectedId === pendingSelectedBudgetId) {
+        setPendingSelectedBudgetId('');
+      }
+      setPrimaryBudgetId(nextPrimaryId);
 
       const details = (
         await Promise.all(
@@ -1510,28 +1634,6 @@ const HomeScreen = () => {
 
       setBudgetDetails(details);
 
-      const storedPrimaryBudgetId = await AsyncStorage.getItem(primaryBudgetStorageKey);
-      const selectedId =
-        pendingSelectedBudgetId &&
-        budgetList.some((budget: any) => budget.id === pendingSelectedBudgetId)
-          ? pendingSelectedBudgetId
-          : selectedBudgetId && budgetList.some((budget: any) => budget.id === selectedBudgetId)
-          ? selectedBudgetId
-          : storedPrimaryBudgetId &&
-              budgetList.some((budget: any) => budget.id === storedPrimaryBudgetId)
-            ? storedPrimaryBudgetId
-            : budgetList[0]?.id || '';
-      const nextPrimaryId =
-        storedPrimaryBudgetId &&
-        budgetList.some((budget: any) => budget.id === storedPrimaryBudgetId)
-          ? storedPrimaryBudgetId
-          : selectedId;
-      setSelectedBudgetId(selectedId);
-      if (pendingSelectedBudgetId && selectedId === pendingSelectedBudgetId) {
-        setPendingSelectedBudgetId('');
-      }
-      setPrimaryBudgetId(nextPrimaryId);
-
       const selectedBudget = details.find((budget: any) => budget.id === selectedId) || details[0];
       const selectedDebts = selectedBudget?.debts || [];
       const routeCycleId = Array.isArray(routeAdditionalIncomeCycleId)
@@ -1546,6 +1648,7 @@ const HomeScreen = () => {
         .toLowerCase()
         .includes('debt');
       const selectedGoalAllocation = Number(selectedCycle?.goalAllocation || 0);
+      const selectedDebtPayments = selectedCycle?.debtPayments || {};
       const orderedSelectedDebts = [...selectedDebts].sort(
         (first: any, second: any) =>
           Number(first.priority || 0) - Number(second.priority || 0),
@@ -1554,7 +1657,7 @@ const HomeScreen = () => {
         selectedIsDebtGoal && selectedBudget?.autoFillEnabled && orderedSelectedDebts.length > 0
           ? distributeDebtAllocation(orderedSelectedDebts, selectedGoalAllocation)
           : orderedSelectedDebts.reduce((next: Record<string, string>, debt: any) => {
-              next[debt.id] = String(Number(debt.minimumPayment || 0));
+              next[debt.id] = String(Number(selectedDebtPayments[debt.id] || 0));
               return next;
             }, {}),
       );
@@ -1565,7 +1668,7 @@ const HomeScreen = () => {
         setDate(dayjs(nextCycle.cycleStart));
       }
     } catch (error) {
-      console.error('Unable to load budgets:', error);
+      console.warn('Unable to load budgets:', error);
     }
   }, [
     pendingSelectedBudgetId,
@@ -1639,9 +1742,20 @@ const HomeScreen = () => {
             nextIncomeOccurrence &&
             !nextIncomeOccurrence.isAfter(today, 'day'),
         );
+        const completedPendingAdditionalIncome = Boolean(
+          notification.action === 'open_additional_income' &&
+            income &&
+            cycleId &&
+            getManualRemainingAmount(income, cycleId) <= 0,
+        );
         return (
           (budgetId || cycleId || incomeId) &&
-          (missingBudget || missingCycle || missingIncome || expiredCycle || expiredIncomeOccurrence)
+          (missingBudget ||
+            missingCycle ||
+            missingIncome ||
+            expiredCycle ||
+            expiredIncomeOccurrence ||
+            completedPendingAdditionalIncome)
         );
       })
       .map(notification => notification.id);
@@ -1650,6 +1764,82 @@ const HomeScreen = () => {
       deleteNotifications(expiredNotificationIds);
     }
   }, [budgetDetails, deleteNotifications, notifications]);
+
+  useEffect(() => {
+    if (!activeBudgetId || !activeCycle?.id) {
+      return;
+    }
+
+    let cancelled = false;
+    const syncReviewedCycle = async () => {
+      const activeIndex = getCycleIndexValue(activeCycle);
+      const storageKey = reviewedCycleStorageKey(userEmail, activeBudgetId);
+      const storedValue = await AsyncStorage.getItem(storageKey);
+      const stored = storedValue ? JSON.parse(storedValue) : null;
+      const storedIndex = Number(stored?.cycleIndex);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (!Number.isFinite(storedIndex)) {
+        await AsyncStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            cycleId: activeCycle.id,
+            cycleIndex: activeIndex,
+            reviewedAt: new Date().toISOString(),
+          }),
+        );
+        return;
+      }
+
+      const cycleAdvanceCount = activeIndex - storedIndex;
+      if (cycleAdvanceCount <= 0) {
+        return;
+      }
+
+      if (cycleAdvanceCount <= 1) {
+        await AsyncStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            cycleId: activeCycle.id,
+            cycleIndex: activeIndex,
+            reviewedAt: new Date().toISOString(),
+          }),
+        );
+        return;
+      }
+
+      if (
+        missedCyclePrompt?.budgetId === activeBudgetId &&
+        missedCyclePrompt?.cycleId === activeCycle.id
+      ) {
+        return;
+      }
+
+      setMissedCyclePrompt({
+        budgetId: activeBudgetId,
+        cycleId: activeCycle.id,
+        cycleIndex: activeIndex,
+      });
+    };
+
+    syncReviewedCycle().catch(error => {
+      console.error('Unable to check reviewed budget cycle:', error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeBudgetId,
+    activeCycle?.id,
+    activeCycle?.cycleIndex,
+    missedCyclePrompt?.budgetId,
+    missedCyclePrompt?.cycleId,
+    userEmail,
+  ]);
 
   useEffect(() => {
     setDebtOrderIds(debts.map((debt: any) => debt.id));
@@ -1698,11 +1888,16 @@ const HomeScreen = () => {
   const [isAmountOnlyExpenseEdit, setIsAmountOnlyExpenseEdit] = useState(false);
   const [editExpenseName, setEditExpenseName] = useState('');
   const [editExpenseAmount, setEditExpenseAmount] = useState('');
+  const [replaceEditExpenseAmountOnInput, setReplaceEditExpenseAmountOnInput] = useState(false);
   const [editExpenseDueDate, setEditExpenseDueDate] = useState('');
   const [editExpenseCategory, setEditExpenseCategory] = useState('');
+  const [editExpensePaySource, setEditExpensePaySource] = useState('');
+  const [editExpenseNewPaySource, setEditExpenseNewPaySource] = useState('');
   const [editExpenseType, setEditExpenseType] = useState('Fixed');
   const [showExpenseDateSheet, setShowExpenseDateSheet] = useState(false);
   const [showExpenseCategorySheet, setShowExpenseCategorySheet] = useState(false);
+  const [showExpensePaySourceSheet, setShowExpensePaySourceSheet] = useState(false);
+  const [showNewExpensePaySourceSheet, setShowNewExpensePaySourceSheet] = useState(false);
   const [editingAdditionalIncome, setEditingAdditionalIncome] = useState<any | null>(null);
   const [editAdditionalIncomeName, setEditAdditionalIncomeName] = useState('');
   const [editAdditionalIncomeAmount, setEditAdditionalIncomeAmount] = useState('');
@@ -1801,6 +1996,52 @@ const HomeScreen = () => {
       setSelectedCycleId(nextCycle.id);
       setDate(dayjs(nextCycle.cycleStart));
     }
+  };
+
+  const markActiveCycleReviewed = async () => {
+    if (!activeBudgetId || !activeCycle?.id) {
+      return;
+    }
+    await AsyncStorage.setItem(
+      reviewedCycleStorageKey(userEmail, activeBudgetId),
+      JSON.stringify({
+        cycleId: activeCycle.id,
+        cycleIndex: getCycleIndexValue(activeCycle),
+        reviewedAt: new Date().toISOString(),
+      }),
+    );
+  };
+
+  const handleContinueMissedCycles = async () => {
+    await markActiveCycleReviewed();
+    setMissedCyclePrompt(null);
+  };
+
+  const handleStartFreshFromMissedCycles = async () => {
+    const staleAdditionalIncomeNotificationIds = notifications
+      .filter(notification => {
+        const budgetId = String(notification.payload?.budgetId || '');
+        const cycleId = String(notification.payload?.cycleId || '');
+        return (
+          notification.type === 'additional_income' &&
+          budgetId === activeBudgetId &&
+          cycleId &&
+          cycleId !== activeCycle?.id
+        );
+      })
+      .map(notification => notification.id);
+
+    if (staleAdditionalIncomeNotificationIds.length > 0) {
+      await deleteNotifications(staleAdditionalIncomeNotificationIds);
+    }
+
+    if (activeCycle?.id) {
+      setSelectedCycleId(activeCycle.id);
+      setDate(dayjs(activeCycle.cycleStart));
+    }
+    setDismissedAdditionalIncomeIds([]);
+    await markActiveCycleReviewed();
+    setMissedCyclePrompt(null);
   };
 
   const handleDeletePress = () => {
@@ -1980,7 +2221,8 @@ const HomeScreen = () => {
     }
     setSelectedExpense(expense);
     setEditExpenseName(expense.name || '');
-    setEditExpenseAmount(String(Number(expense.amount || 0)));
+    setEditExpenseAmount(String(Math.round(Number(expense.amount || 0))));
+    setReplaceEditExpenseAmountOnInput(true);
     setEditExpenseDueDate(expense.dueDate || '');
     setEditExpenseCategory(expense.category || 'General');
     setEditExpenseType(
@@ -2001,9 +2243,11 @@ const HomeScreen = () => {
     if (!selectedExpense) return;
 
     setEditExpenseName(selectedExpense.name || '');
-    setEditExpenseAmount(String(Number(selectedExpense.amount || 0)));
+    setEditExpenseAmount(String(Math.round(Number(selectedExpense.amount || 0))));
+    setReplaceEditExpenseAmountOnInput(true);
     setEditExpenseDueDate(selectedExpense.dueDate || '');
     setEditExpenseCategory(selectedExpense.category || 'General');
+    setEditExpensePaySource(selectedExpense.notes?.trim() || '');
     setEditExpenseType(
       String(selectedExpense.type || '').toLowerCase().includes('variable')
         ? 'Variable'
@@ -2011,6 +2255,25 @@ const HomeScreen = () => {
     );
     setIsAmountOnlyExpenseEdit(false);
     setIsEditingExpenseDetails(true);
+  };
+
+  const handleEditExpenseAmountChange = (value: string) => {
+    const cleanedValue = value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+    if (!replaceEditExpenseAmountOnInput) {
+      setEditExpenseAmount(cleanedValue);
+      return;
+    }
+
+    setReplaceEditExpenseAmountOnInput(false);
+    if (!cleanedValue || cleanedValue.length < editExpenseAmount.length) {
+      setEditExpenseAmount('');
+      return;
+    }
+
+    const enteredValue = cleanedValue.startsWith(editExpenseAmount)
+      ? cleanedValue.slice(editExpenseAmount.length)
+      : cleanedValue.slice(-1);
+    setEditExpenseAmount(enteredValue.replace(/[^0-9.]/g, ''));
   };
 
   const handleSaveExpenseDetails = async () => {
@@ -2026,8 +2289,11 @@ const HomeScreen = () => {
       return;
     }
 
-    if (!isAmountOnlyExpenseEdit && (!editExpenseName.trim() || !editExpenseDueDate.trim())) {
-      Alert.alert('Missing expense details', 'Enter a name, amount, and due date.');
+    if (
+      !isAmountOnlyExpenseEdit &&
+      (!editExpenseName.trim() || !editExpenseDueDate.trim() || !editExpensePaySource.trim())
+    ) {
+      Alert.alert('Missing expense details', 'Enter a name, amount, due date, and pay source.');
       return;
     }
 
@@ -2042,6 +2308,7 @@ const HomeScreen = () => {
               amount,
               dueDate: editExpenseDueDate.trim(),
               category: editExpenseCategory.trim() || 'General',
+              notes: editExpensePaySource.trim(),
               frequency: selectedExpense.frequency || 'Every Pay Cycle',
               type: editExpenseType,
             },
@@ -2209,7 +2476,13 @@ const HomeScreen = () => {
             styles.additionalIncomeIcon,
             {backgroundColor: index % 2 === 0 ? '#27AE60' : '#5B5CE2'},
           ]}>
-          <Feather name={getAdditionalIncomeIcon(income) as any} size={17} color="#FFFFFF" />
+          {getAdditionalIncomeIcon(income) === 'dollar-sign' ? (
+            <View style={styles.additionalIncomeDollarCircle}>
+              <Feather name="dollar-sign" size={16} color="#FFFFFF" />
+            </View>
+          ) : (
+            <Feather name={getAdditionalIncomeIcon(income) as any} size={17} color="#FFFFFF" />
+          )}
         </View>
         <View style={styles.additionalIncomeTextGroup}>
           <Text
@@ -2284,17 +2557,17 @@ const HomeScreen = () => {
             budgets={budgets}
             primaryBudgetId={primaryBudgetId}
             selectedBudgetId={activeBudgetId}
+            isBudgetLoading={!hasLoadedBudgetList}
             onPrimaryBudgetChange={handlePrimaryBudgetChange}
             onBudgetSelect={handleBudgetSelect}
+            onBudgetRename={handleBudgetRename}
             currentSavings={Number(activeBudget?.currentSavings || 0)}
             savingsGoal={Number(
               activeBudget?.savingsGoal ||
                 userData?.savingsGoal ||
                 0,
             )}
-            currentIncome={Number(
-              activeCycle?.baseIncome ?? activeBudget?.netPay ?? incomeFromItems ?? 0,
-            )}
+            currentIncome={Number(activeCycle?.baseIncome ?? activeBudget?.netPay ?? 0)}
             activeCycleId={activeCycle?.id}
             autoFillEnabled={Boolean(activeBudget?.autoFillEnabled)}
             onAutoFillChange={handleAutoFillChange}
@@ -2372,8 +2645,10 @@ const HomeScreen = () => {
               onPress={openToSaveSheet}
               style={[styles.toSaveOverviewRow, isPastCycle && styles.disabledSummaryMetric]}>
               <View style={[styles.toSaveIconCircle, {backgroundColor: color.iconCardBg}]}>
-                <Feather name="dollar-sign" size={20} color={color.primary} />
-                <Feather name="trending-up" size={15} color={color.primary} style={styles.toSaveTrendIcon} />
+                <View style={[styles.toSaveDollarInnerCircle, {borderColor: color.primary}]}>
+                  <Feather name="dollar-sign" size={18} color={color.primary} />
+                </View>
+                <Feather name="arrow-up-right" size={17} color={color.primary} style={styles.toSaveTrendIcon} />
               </View>
               <View style={styles.toSaveOverviewCopy}>
                 <View style={styles.toSaveTitleRow}>
@@ -2810,6 +3085,7 @@ const HomeScreen = () => {
                         </Text>
                         <NativeTextInput
                           value={debtPaymentInputs[debt.id] ?? '0'}
+                          selectTextOnFocus
                           onChangeText={value => handleDebtPaymentChange(debt, value)}
                           onFocus={() => {
                             if (/^0+(\.0+)?$/.test(String(debtPaymentInputs[debt.id] ?? '0'))) {
@@ -2917,6 +3193,7 @@ const HomeScreen = () => {
               <NativeTextInput
                 ref={additionalIncomeInputRef}
                 value={additionalIncomeAmount}
+                selectTextOnFocus
                 onChangeText={value =>
                   setAdditionalIncomeAmount(
                     value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'),
@@ -2979,7 +3256,7 @@ const HomeScreen = () => {
         backgroundColor={color.inputField}
         maxHeight={520}>
         <Calendar
-          minDate={new Date().toISOString().slice(0, 10)}
+          minDate={dayjs().format('YYYY-MM-DD')}
           onDayPress={day => {
             setEditAdditionalIncomePayDate(day.dateString);
             setShowAdditionalIncomePayDateSheet(false);
@@ -3087,6 +3364,17 @@ const HomeScreen = () => {
         </View>
       </BottomSheet>
 
+      <CustomModal
+        visible={!!missedCyclePrompt}
+        onClose={handleContinueMissedCycles}
+        title="Budget cycle check-in"
+        message="It looks like at least one full budget cycle passed since you last reviewed this budget. Start fresh from the current cycle, or continue where you left off without changing past budgets."
+        primaryButtonText="Start Fresh"
+        secondaryButtonText="Continue Where I Left Off"
+        onPrimaryPress={handleStartFreshFromMissedCycles}
+        onSecondaryPress={handleContinueMissedCycles}
+      />
+
       {/* Delete Budget Modal */}
       <CustomModal
         visible={showDeleteModal}
@@ -3127,10 +3415,16 @@ const HomeScreen = () => {
           <Text size={12} color={color.tabicon} style={{textAlign: 'center'}}>
             (based on your entries)
           </Text>
-          <Button title="Mark as Paid Off" onPress={markDebtAsPaidOff} />
           <Button
-            title="Adjust Balance"
+            title="Edit Balance"
             onPress={openAdjustDebtBalance}
+            style={{backgroundColor: color.bg, borderWidth: 1, borderColor: color.primary}}
+            titleStyle={{color: color.primary}}
+          />
+          <Button title="Delete Debt" onPress={deletePaidOffDebt} />
+          <Button
+            title="Keep as Paid Off"
+            onPress={markDebtAsPaidOff}
             style={{backgroundColor: color.bg, borderWidth: 1, borderColor: color.primary}}
             titleStyle={{color: color.primary}}
           />
@@ -3394,7 +3688,25 @@ const HomeScreen = () => {
         }}
         title="Expense Details"
         hideTitleLine={true}
-        backgroundColor={color.inputField}>
+        backgroundColor={color.inputField}
+        footer={
+          selectedExpense && isEditingExpenseDetails ? (
+            <View style={{gap: heightPixel(10)}}>
+              <Button
+                title="Save"
+                style={styles.modalActionButton}
+                onPress={handleSaveExpenseDetails}
+              />
+              <Button
+                title="Cancel"
+                variant="outline"
+                style={styles.modalActionButton}
+                titleStyle={{color: color.primary}}
+                onPress={() => setIsEditingExpenseDetails(false)}
+              />
+            </View>
+          ) : null
+        }>
         <Spacer height={heightPixel(20)} />
         {selectedExpense && !isEditingExpenseDetails && (
           <View style={{gap: heightPixel(12), marginBottom: heightPixel(35)}}>
@@ -3403,6 +3715,7 @@ const HomeScreen = () => {
               ['Amount', formatWholeCurrency(selectedExpense.amount)],
               ['Due Date', selectedExpense.dueDate || 'Not set'],
               ['Category', selectedExpense.category || 'General'],
+              ['Pay Source', selectedExpense.notes?.trim() || 'Unassigned'],
               ['Fixed / Variable', selectedExpense.type || 'Fixed'],
             ].map(([label, value]) => (
               <View
@@ -3449,39 +3762,12 @@ const HomeScreen = () => {
         {selectedExpense && isEditingExpenseDetails && (
           <View style={{gap: heightPixel(14), marginBottom: heightPixel(35)}}>
             {!isAmountOnlyExpenseEdit && (
-              <TextInput
-                title="Name"
-                placeholder="Expense Name"
-                value={editExpenseName}
-                onChangeText={setEditExpenseName}
-              />
-            )}
-            <TextInput
-              title="Amount"
-              placeholder="0"
-              keyboardType="numeric"
-              useCurrencyIcon={true}
-              value={editExpenseAmount}
-              onChangeText={setEditExpenseAmount}
-            />
-            {!isAmountOnlyExpenseEdit && (
               <>
                 <TextInput
-                  title="Due Date"
-                  placeholder="YYYY-MM-DD"
-                  value={editExpenseDueDate}
-                  onPress={() => setShowExpenseDateSheet(true)}
-                  onFocus={() => setShowExpenseDateSheet(true)}
-                  rightIcon={appImages.Calenderimg}
-                  rightIconPress={() => setShowExpenseDateSheet(true)}
-                />
-                <TextInput
-                  title="Category"
-                  placeholder="Category"
-                  value={editExpenseCategory}
-                  onPress={() => setShowExpenseCategorySheet(true)}
-                  rightIcon={appImages.ArrowDown}
-                  rightIconPress={() => setShowExpenseCategorySheet(true)}
+                  title="Name"
+                  placeholder="Expense Name"
+                  value={editExpenseName}
+                  onChangeText={setEditExpenseName}
                 />
                 <View style={{flexDirection: 'row', gap: widthPixel(10)}}>
                   {['Fixed', 'Variable'].map(option => (
@@ -3506,20 +3792,47 @@ const HomeScreen = () => {
                 </View>
               </>
             )}
-            <Button
-              title="Save Changes"
-              variant="outline"
-              style={styles.modalActionButton}
-              titleStyle={{color: color.primary}}
-              onPress={handleSaveExpenseDetails}
+            <TextInput
+              title="Amount"
+              placeholder="0"
+              keyboardType="numeric"
+              useCurrencyIcon={true}
+              value={editExpenseAmount}
+              selectTextOnFocus={false}
+              onFocus={() => setReplaceEditExpenseAmountOnInput(true)}
+              onBlur={() => setReplaceEditExpenseAmountOnInput(false)}
+              onChangeText={handleEditExpenseAmountChange}
             />
-            <Button
-              title="Cancel"
-              variant="outline"
-              style={styles.modalActionButton}
-              titleStyle={{color: color.primary}}
-              onPress={() => setIsEditingExpenseDetails(false)}
-            />
+            {!isAmountOnlyExpenseEdit && (
+              <>
+                <TextInput
+                  title="Due Date"
+                  placeholder="YYYY-MM-DD"
+                  value={editExpenseDueDate}
+                  onPress={() => setShowExpenseDateSheet(true)}
+                  onFocus={() => setShowExpenseDateSheet(true)}
+                  rightIcon={appImages.Calenderimg}
+                  rightIconPress={() => setShowExpenseDateSheet(true)}
+                />
+                <TextInput
+                  title="Category"
+                  placeholder="Category"
+                  value={editExpenseCategory}
+                  onPress={() => setShowExpenseCategorySheet(true)}
+                  rightIcon={appImages.ArrowDown}
+                  rightIconPress={() => setShowExpenseCategorySheet(true)}
+                />
+                <TextInput
+                  title="Pay Source"
+                  placeholder="Select Pay Source"
+                  value={editExpensePaySource}
+                  onPress={() => setShowExpensePaySourceSheet(true)}
+                  onFocus={() => setShowExpensePaySourceSheet(true)}
+                  rightIcon={appImages.ArrowDown}
+                  rightIconPress={() => setShowExpensePaySourceSheet(true)}
+                />
+              </>
+            )}
           </View>
         )}
       </BottomSheet>
@@ -3547,6 +3860,21 @@ const HomeScreen = () => {
         visible={showExpenseCategorySheet}
         onClose={() => setShowExpenseCategorySheet(false)}
         title="Select Category"
+        headerLeft={
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => setShowExpenseCategorySheet(false)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: widthPixel(4),
+            }}>
+            <Feather name="chevron-left" size={22} color={color.black} />
+            <Text size={14} variant="medium" color={color.black}>
+              Back
+            </Text>
+          </TouchableOpacity>
+        }
         backgroundColor={color.inputField}
         maxHeight={760}>
         <ScrollView showsVerticalScrollIndicator={false}>
@@ -3570,7 +3898,11 @@ const HomeScreen = () => {
                     }}
                     style={styles.categoryItem}>
                     <View style={[styles.categoryIconWrap, {backgroundColor: color.primary}]}>
-                      <Image source={item.icon} style={styles.categoryIcon} />
+                      {item.vectorIcon ? (
+                        <Feather name={item.vectorIcon as any} size={20} color={color.black} />
+                      ) : (
+                        <Image source={item.icon} style={styles.categoryIcon} />
+                      )}
                     </View>
                     <Text
                       size={11}
@@ -3586,6 +3918,111 @@ const HomeScreen = () => {
             </View>
           ))}
         </ScrollView>
+      </BottomSheet>
+      <BottomSheet
+        visible={showExpensePaySourceSheet}
+        onClose={() => setShowExpensePaySourceSheet(false)}
+        title="Select Pay Source"
+        backgroundColor={color.inputField}
+        maxHeight={560}>
+        <View style={{gap: heightPixel(10), marginBottom: heightPixel(30)}}>
+          {paymentSourceOptions.map(source => (
+            <TouchableOpacity
+              key={source}
+              activeOpacity={0.8}
+              onPress={() => {
+                setEditExpensePaySource(source);
+                setShowExpensePaySourceSheet(false);
+              }}
+              style={{
+                borderWidth: 1,
+                borderColor: color.primary,
+                borderRadius: 10,
+                paddingHorizontal: widthPixel(14),
+                paddingVertical: heightPixel(12),
+              }}>
+              <Text size={15} color={color.black} variant="medium">
+                {source}
+              </Text>
+            </TouchableOpacity>
+          ))}
+          {paymentSourceOptions.length === 0 && (
+            <Text size={14} color={color.tabicon} style={{textAlign: 'center'}}>
+              No payment sources yet.
+            </Text>
+          )}
+          <TouchableOpacity
+            activeOpacity={0.8}
+            onPress={() => {
+              setShowExpensePaySourceSheet(false);
+              setShowNewExpensePaySourceSheet(true);
+            }}
+            style={{
+              borderWidth: 1,
+              borderColor: color.primary,
+              borderRadius: heightPixel(50),
+              paddingVertical: heightPixel(14),
+              marginTop: heightPixel(8),
+            }}>
+            <Text size={15} variant="medium" color={color.primary} style={{textAlign: 'center'}}>
+              Add New Payment Source
+            </Text>
+          </TouchableOpacity>
+          <Button
+            title="Cancel"
+            variant="outline"
+            style={{borderColor: color.primary}}
+            titleStyle={{color: color.primary}}
+            onPress={() => setShowExpensePaySourceSheet(false)}
+          />
+        </View>
+      </BottomSheet>
+      <BottomSheet
+        visible={showNewExpensePaySourceSheet}
+        onClose={() => {
+          setShowNewExpensePaySourceSheet(false);
+          setEditExpenseNewPaySource('');
+        }}
+        title="Add Pay Source"
+        backgroundColor={color.inputField}
+        maxHeight={360}>
+        <View style={{marginBottom: heightPixel(30)}}>
+          <TextInput
+            title="Payment Source"
+            placeholder="Enter Name"
+            placeholderTextColor={color.tabicon}
+            value={editExpenseNewPaySource}
+            onChangeText={setEditExpenseNewPaySource}
+            inputContainerStyle={customInputBg ? {backgroundColor: customInputBg} : undefined}
+          />
+          <Spacer height={heightPixel(20)} />
+          <Button
+            title="Add Payment Source"
+            onPress={() => {
+              const trimmedSource = editExpenseNewPaySource.trim();
+              if (trimmedSource) {
+                setOneTimeCustomPaySources(previous =>
+                  previous.includes(trimmedSource) ? previous : [...previous, trimmedSource],
+                );
+                setEditExpensePaySource(trimmedSource);
+                setEditExpenseNewPaySource('');
+                setShowNewExpensePaySourceSheet(false);
+              }
+            }}
+          />
+          <Spacer height={heightPixel(10)} />
+          <Button
+            title="Cancel"
+            variant="outline"
+            style={{borderColor: color.primary}}
+            titleStyle={{color: color.primary}}
+            onPress={() => {
+              setShowNewExpensePaySourceSheet(false);
+              setEditExpenseNewPaySource('');
+              setShowExpensePaySourceSheet(true);
+            }}
+          />
+        </View>
       </BottomSheet>
       <BottomSheet
         visible={showCarryOverSheet}
@@ -3724,7 +4161,7 @@ const styles = StyleSheet.create({
     width: '48%',
     minHeight: heightPixel(46),
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: widthPixel(10),
   },
   toSaveIconCircle: {
@@ -3733,11 +4170,20 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: heightPixel(10),
+  },
+  toSaveDollarInnerCircle: {
+    width: widthPixel(24),
+    height: heightPixel(24),
+    borderRadius: 12,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toSaveTrendIcon: {
     position: 'absolute',
-    right: widthPixel(5),
-    bottom: heightPixel(6),
+    right: widthPixel(-2),
+    top: heightPixel(-2),
   },
   toSaveOverviewCopy: {
     flex: 1,
@@ -3908,6 +4354,15 @@ const styles = StyleSheet.create({
     width: widthPixel(34),
     height: heightPixel(34),
     borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  additionalIncomeDollarCircle: {
+    width: widthPixel(23),
+    height: heightPixel(23),
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -35,6 +35,7 @@ interface BottomSheetProps {
   backgroundColor?: string;
   dismissible?: boolean;
   headerLeft?: ReactNode;
+  footer?: ReactNode;
 }
 
 export const BottomSheet: React.FC<BottomSheetProps> = ({
@@ -47,6 +48,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   backgroundColor,
   dismissible = true,
   headerLeft,
+  footer,
 }) => {
   const color = useThemeColor();
   const colorScheme = useAppColorScheme();
@@ -163,15 +165,14 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
             ) : null}
             <ScrollView
               style={styles.content}
-              contentContainerStyle={
-                (styles.scrollContent, {paddingBottom: heightPixel(15)})
-              }
+              contentContainerStyle={[styles.scrollContent, {paddingBottom: heightPixel(15)}]}
               showsVerticalScrollIndicator={false}
               bounces={false}
               nestedScrollEnabled={true}
               keyboardShouldPersistTaps="handled">
               {children}
             </ScrollView>
+            {footer ? <View style={styles.footer}>{footer}</View> : null}
           </Animated.View>
         </KeyboardAvoidingView>
       </View>
@@ -281,6 +282,12 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: widthPixel(30),
+    flexShrink: 1,
+  },
+  footer: {
+    paddingHorizontal: widthPixel(30),
+    paddingTop: heightPixel(10),
+    paddingBottom: heightPixel(18),
   },
   scrollContent: {
     flexGrow: 1,

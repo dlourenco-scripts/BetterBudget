@@ -219,9 +219,15 @@ const initializeSchema = async () => {
         amount DECIMAL(10,2) NOT NULL,
         source TEXT NOT NULL DEFAULT 'manual',
         notes TEXT,
+        applied_at TIMESTAMP,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
+    `);
+
+    await client.query(`
+      ALTER TABLE allocations
+      ADD COLUMN IF NOT EXISTS applied_at TIMESTAMP
     `);
 
     await client.query('COMMIT');

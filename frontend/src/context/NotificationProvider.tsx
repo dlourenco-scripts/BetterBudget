@@ -43,6 +43,12 @@ const NotificationContext = createContext<NotificationContextValue | undefined>(
 const storageKeyForEmail = (email?: string) =>
   `betterbudget.notifications.${email || 'default'}`;
 
+const isActivePendingAction = (notification: AppNotification) =>
+  notification.action === 'open_additional_income' ||
+  (notification.type === 'additional_income' &&
+    (notification.title === 'Additional income available' ||
+      /available to add|ready to be added/i.test(notification.message)));
+
 export const NotificationProvider: React.FC<{children: React.ReactNode}> = ({
   children,
 }) => {
@@ -131,7 +137,9 @@ export const NotificationProvider: React.FC<{children: React.ReactNode}> = ({
     [persist],
   );
 
-  const unreadCount = notifications.filter(notification => !notification.isRead).length;
+  const unreadCount = notifications.filter(
+    notification => !notification.isRead && !isActivePendingAction(notification),
+  ).length;
 
   const value = useMemo(
     () => ({

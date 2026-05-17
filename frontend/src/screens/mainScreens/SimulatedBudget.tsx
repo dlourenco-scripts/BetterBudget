@@ -857,7 +857,11 @@ const SimulatedBudget = () => {
                             backgroundColor: isSelected ? 'rgba(248, 173, 46, 0.12)' : 'transparent',
                           },
                         ]}>
-                        <Image source={item.icon} style={styles.categoryIcon} resizeMode="contain" />
+                        {item.vectorIcon ? (
+                          <Feather name={item.vectorIcon as any} size={20} color={color.tabicon} />
+                        ) : (
+                          <Image source={item.icon} style={styles.categoryIcon} resizeMode="contain" />
+                        )}
                         <Text
                           size={10}
                           variant="medium"

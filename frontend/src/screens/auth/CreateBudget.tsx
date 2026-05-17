@@ -23,6 +23,7 @@ const CreateBudget = () => {
   const [budgetName, setBudgetName] = useState('');
   const [reserveAmount, setReserveAmount] = useState('');
   const [currentSavings, setCurrentSavings] = useState('');
+  const [submitted, setSubmitted] = useState(false);
   const {fromHome, fromBudgetCreation, fromCopyExpenses, sourceBudgetId} =
     useLocalSearchParams<{
       fromHome?: string;
@@ -56,6 +57,8 @@ const CreateBudget = () => {
         placeholder="Budget Name"
         value={budgetName}
         onChangeText={setBudgetName}
+        error="Budget name is required"
+        touched={submitted && !budgetName.trim()}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -76,6 +79,8 @@ const CreateBudget = () => {
         placeholder="0"
         value={reserveAmount}
         onChangeText={setReserveAmount}
+        error="Balance to keep is required"
+        touched={submitted && !reserveAmount.trim()}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -93,6 +98,8 @@ const CreateBudget = () => {
         placeholder="0"
         value={currentSavings}
         onChangeText={setCurrentSavings}
+        error="Current savings is required"
+        touched={submitted && !currentSavings.trim()}
         inputContainerStyle={{
           backgroundColor: color.inputField,
         }}
@@ -102,8 +109,11 @@ const CreateBudget = () => {
       <Button
         title="Next"
         onPress={() => {
+          setSubmitted(true);
           if (!budgetName.trim()) {
-            Alert.alert('Budget name required', 'Please enter a budget name.');
+            return;
+          }
+          if (!reserveAmount.trim() || !currentSavings.trim()) {
             return;
           }
           router.push({

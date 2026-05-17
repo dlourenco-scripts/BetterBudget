@@ -1,7 +1,8 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {Image, TouchableOpacity, View} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
-import {router} from 'expo-router';
+import {router, useFocusEffect} from 'expo-router';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import {BottomSheet, Header, Spacer, Text, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
@@ -13,6 +14,7 @@ import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {budgetApi} from '@/network/api';
+import {useAuthStore} from '@/store';
 
 const getManualAppliedAmount = (income: any, cycleId?: string) => {
   if (!cycleId) {
@@ -27,20 +29,65 @@ const getManualAppliedAmount = (income: any, cycleId?: string) => {
 const getManualRemainingAmount = (income: any, cycleId?: string) =>
   Math.max(0, Number(income?.amount || 0) - getManualAppliedAmount(income, cycleId));
 
+const isPendingAdditionalIncomeNotification = (notification: AppNotification) =>
+  notification.action === 'open_additional_income';
+
 const NotificationScreen = () => {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
+  const userEmail = useAuthStore(state => state.userData?.email);
+  const activeBudgetStorageKey = `betterbudget.activeBudgetId.${userEmail || 'default'}`;
   const {
     notifications,
     markRead,
     deleteNotifications,
   } = useNotifications();
+  const [activeBudgetId, setActiveBudgetId] = useState('');
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showNotificationSheet, setShowNotificationSheet] = useState(false);
   const [selectedNotification, setSelectedNotification] =
     useState<AppNotification | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
+      AsyncStorage.getItem(activeBudgetStorageKey)
+        .then(value => {
+          if (mounted) {
+            setActiveBudgetId(value || '');
+          }
+        })
+        .catch(error => {
+          console.error('Unable to load active budget id for notifications:', error);
+        });
+
+      return () => {
+        mounted = false;
+      };
+    }, [activeBudgetStorageKey]),
+  );
+
+  const visibleNotifications = notifications.filter(notification => {
+    const notificationBudgetId = String(notification.payload?.budgetId || '');
+    const isBudgetCycleNotification =
+      notification.type === 'additional_income' ||
+      notification.type === 'payday_reminder' ||
+      Boolean(notification.payload?.cycleId);
+
+    if (!isBudgetCycleNotification) {
+      return true;
+    }
+
+    return Boolean(activeBudgetId && notificationBudgetId === activeBudgetId);
+  });
+  const pendingActionNotifications = visibleNotifications.filter(
+    isPendingAdditionalIncomeNotification,
+  );
+  const informationalNotifications = visibleNotifications.filter(
+    notification => !isPendingAdditionalIncomeNotification(notification),
+  );
 
   const handleLongPress = (id: string) => {
     if (!isSelectionMode) {
@@ -60,10 +107,10 @@ const NotificationScreen = () => {
   };
 
   const handleSelectAll = () => {
-    if (selectedIds.size === notifications.length) {
+    if (selectedIds.size === visibleNotifications.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(notifications.map(n => n.id)));
+      setSelectedIds(new Set(visibleNotifications.map(n => n.id)));
     }
   };
 
@@ -79,11 +126,11 @@ const NotificationScreen = () => {
     setSelectedIds(new Set());
   };
 
-  const todayNotifications = notifications.filter(n => {
+  const todayNotifications = informationalNotifications.filter(n => {
     const createdAt = new Date(n.createdAt);
     return createdAt.toDateString() === new Date().toDateString();
   });
-  const yesterdayNotifications = notifications.filter(
+  const yesterdayNotifications = informationalNotifications.filter(
     n => {
       const createdAt = new Date(n.createdAt);
       const yesterday = new Date();
@@ -93,11 +140,14 @@ const NotificationScreen = () => {
   );
 
   const openNotification = async (notification: AppNotification) => {
-    await markRead(notification.id);
     if (notification.action === 'open_additional_income') {
       const budgetId = String(notification.payload?.budgetId || '');
       const cycleId = String(notification.payload?.cycleId || '');
       const incomeId = String(notification.payload?.incomeId || '');
+      if (!budgetId || (activeBudgetId && budgetId !== activeBudgetId)) {
+        return;
+      }
+      await markRead(notification.id);
       try {
         const response = budgetId ? await budgetApi.get(budgetId) : null;
         const income = response?.data?.incomes?.find((item: any) => item.id === incomeId);
@@ -108,23 +158,26 @@ const NotificationScreen = () => {
       } catch (error) {
         console.error('Unable to validate additional income notification:', error);
       }
-      router.push({
+      router.navigate({
         pathname: '/(tabs)/HomeScreen',
         params: {
           selectedBudgetId: budgetId,
           openAdditionalIncomeId: incomeId,
           openAdditionalIncomeCycleId: cycleId,
+          openAdditionalIncomeRequestId: `${Date.now()}`,
         },
       });
       return;
     }
 
+    await markRead(notification.id);
     setSelectedNotification(notification);
     setShowNotificationSheet(true);
   };
 
   const renderNotification = (notification: AppNotification) => {
     const isSelected = selectedIds.has(notification.id);
+    const isPendingAction = isPendingAdditionalIncomeNotification(notification);
     const createdDate = new Date(notification.createdAt);
     const time = createdDate.toLocaleTimeString([], {
       hour: 'numeric',
@@ -145,7 +198,9 @@ const NotificationScreen = () => {
         }}
         style={{
           backgroundColor:
-            !isDarkMode && notification.isRead
+            isPendingAction
+              ? color.notificationbg
+              : !isDarkMode && notification.isRead
               ? color.white
               : color.notificationbg,
           flexDirection: 'row',
@@ -176,7 +231,7 @@ const NotificationScreen = () => {
             style={{
               borderRadius: 50,
               backgroundColor:
-                !notification.isRead
+                isPendingAction || !notification.isRead
                   ? color.primary
                   : color.bg,
               alignSelf: 'flex-start',
@@ -184,7 +239,7 @@ const NotificationScreen = () => {
             }}>
             <Image
               source={appImages.Bellimg}
-              tintColor={isDarkMode ? color.white : color.placeholdertext}
+              tintColor={isPendingAction || !notification.isRead ? color.white : isDarkMode ? color.white : color.placeholdertext}
               style={{
                 height: heightPixel(22),
                 width: widthPixel(22),
@@ -242,7 +297,7 @@ const NotificationScreen = () => {
               }}>
               <View
                 style={{flexDirection: 'row', alignItems: 'center', gap: 10}}>
-                {selectedIds.size === notifications.length ? (
+                {selectedIds.size === visibleNotifications.length ? (
                   <TouchableOpacity onPress={handleSelectAll}>
                     <Image
                       source={appImages.SelectBox}
@@ -316,6 +371,8 @@ const NotificationScreen = () => {
 
           <Spacer height={10} />
 
+          {pendingActionNotifications.map(renderNotification)}
+
           {/* Today Section */}
           {todayNotifications.length > 0 && (
             <>
@@ -348,7 +405,7 @@ const NotificationScreen = () => {
               {yesterdayNotifications.map(renderNotification)}
             </>
           )}
-          {notifications.length === 0 && !isSelectionMode && (
+          {visibleNotifications.length === 0 && !isSelectionMode && (
             <View
               style={{
                 alignItems: 'center',

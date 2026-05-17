@@ -96,6 +96,9 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
   onChangeText,
   placeholder,
   value,
+  keyboardType,
+  selection,
+  selectTextOnFocus,
   ...rest
 }, ref) => {
   const colors = useThemeColor();
@@ -104,6 +107,17 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
   const {getCurrencyIcon} = useCurrency();
   const [isFocused, setIsFocused] = useState(false);
   const displayValue = useCurrencyIcon ? formatCurrencyText(value as string) : value;
+  const shouldSelectTextOnFocus =
+    selectTextOnFocus ??
+    Boolean(
+      useCurrencyIcon ||
+        keyboardType === 'numeric' ||
+        keyboardType === 'decimal-pad' ||
+        keyboardType === 'number-pad',
+    );
+  const [focusSelection, setFocusSelection] = useState<
+    {start: number; end: number} | undefined
+  >(undefined);
 
   // --------------------
   // TITLE + INFO ICON UI
@@ -182,13 +196,23 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
         <RNTextInput
           ref={ref}
           {...rest}
+          keyboardType={keyboardType}
+          selectTextOnFocus={shouldSelectTextOnFocus}
+          selection={focusSelection || selection}
           value={displayValue}
           onChangeText={text => {
+            setFocusSelection(undefined);
             onChangeText?.(useCurrencyIcon ? normalizeCurrencyText(text) : text);
           }}
           multiline={multiline}
           onFocus={event => {
             setIsFocused(true);
+            if (shouldSelectTextOnFocus) {
+              const nextValue = String(displayValue ?? '');
+              if (nextValue.length > 0) {
+                setFocusSelection({start: 0, end: nextValue.length});
+              }
+            }
             if (
               useCurrencyIcon &&
               onChangeText &&
@@ -200,6 +224,7 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
           }}
           onBlur={event => {
             setIsFocused(false);
+            setFocusSelection(undefined);
             onBlur?.(event);
           }}
           placeholder={isFocused ? '' : placeholder}
