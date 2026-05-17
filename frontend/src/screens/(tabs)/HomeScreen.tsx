@@ -1896,7 +1896,6 @@ const HomeScreen = () => {
   const [isAmountOnlyExpenseEdit, setIsAmountOnlyExpenseEdit] = useState(false);
   const [editExpenseName, setEditExpenseName] = useState('');
   const [editExpenseAmount, setEditExpenseAmount] = useState('');
-  const [replaceEditExpenseAmountOnInput, setReplaceEditExpenseAmountOnInput] = useState(false);
   const [editExpenseDueDate, setEditExpenseDueDate] = useState('');
   const [editExpenseCategory, setEditExpenseCategory] = useState('');
   const [editExpensePaySource, setEditExpensePaySource] = useState('');
@@ -2230,7 +2229,6 @@ const HomeScreen = () => {
     setSelectedExpense(expense);
     setEditExpenseName(expense.name || '');
     setEditExpenseAmount(String(Math.round(Number(expense.amount || 0))));
-    setReplaceEditExpenseAmountOnInput(true);
     setEditExpenseDueDate(expense.dueDate || '');
     setEditExpenseCategory(expense.category || 'General');
     setEditExpenseType(
@@ -2252,7 +2250,6 @@ const HomeScreen = () => {
 
     setEditExpenseName(selectedExpense.name || '');
     setEditExpenseAmount(String(Math.round(Number(selectedExpense.amount || 0))));
-    setReplaceEditExpenseAmountOnInput(true);
     setEditExpenseDueDate(selectedExpense.dueDate || '');
     setEditExpenseCategory(selectedExpense.category || 'General');
     setEditExpensePaySource(selectedExpense.notes?.trim() || '');
@@ -2263,25 +2260,6 @@ const HomeScreen = () => {
     );
     setIsAmountOnlyExpenseEdit(false);
     setIsEditingExpenseDetails(true);
-  };
-
-  const handleEditExpenseAmountChange = (value: string) => {
-    const cleanedValue = value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
-    if (!replaceEditExpenseAmountOnInput) {
-      setEditExpenseAmount(cleanedValue);
-      return;
-    }
-
-    setReplaceEditExpenseAmountOnInput(false);
-    if (!cleanedValue || cleanedValue.length < editExpenseAmount.length) {
-      setEditExpenseAmount('');
-      return;
-    }
-
-    const enteredValue = cleanedValue.startsWith(editExpenseAmount)
-      ? cleanedValue.slice(editExpenseAmount.length)
-      : cleanedValue.slice(-1);
-    setEditExpenseAmount(enteredValue.replace(/[^0-9.]/g, ''));
   };
 
   const handleSaveExpenseDetails = async () => {
@@ -3808,10 +3786,12 @@ const HomeScreen = () => {
               keyboardType="numeric"
               useCurrencyIcon={true}
               value={editExpenseAmount}
-              selectTextOnFocus={false}
-              onFocus={() => setReplaceEditExpenseAmountOnInput(true)}
-              onBlur={() => setReplaceEditExpenseAmountOnInput(false)}
-              onChangeText={handleEditExpenseAmountChange}
+              replaceOnFirstType
+              onChangeText={value =>
+                setEditExpenseAmount(
+                  value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'),
+                )
+              }
             />
             {!isAmountOnlyExpenseEdit && (
               <>
@@ -4180,7 +4160,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: heightPixel(10),
+    marginTop: heightPixel(5),
   },
   toSaveDollarInnerCircle: {
     width: widthPixel(24),

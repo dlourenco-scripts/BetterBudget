@@ -17,11 +17,18 @@ function getExpoHost() {
 
 const expoHost = getExpoHost();
 const localBaseUrl = expoHost ? `http://${expoHost}:4000/api/v1` : defaultBaseUrl;
+const configuredBaseUrl =
+  process.env.EXPO_PUBLIC_API_URL?.trim() ||
+  process.env.EXPO_PUBLIC_API_BASE_URL?.trim() ||
+  process.env.EXPO_PUBLIC_AWS_API_URL?.trim() ||
+  '';
+const isDevelopment = typeof __DEV__ === 'boolean' ? __DEV__ : process.env.NODE_ENV !== 'production';
 
-export const BASE_URL =
-  process.env.EXPO_PUBLIC_API_URL ||
-  process.env.EXPO_PUBLIC_API_BASE_URL ||
-  localBaseUrl;
+if (!isDevelopment && !configuredBaseUrl) {
+  console.warn('Missing EXPO_PUBLIC_API_URL for production build.');
+}
+
+export const BASE_URL = configuredBaseUrl || (isDevelopment ? localBaseUrl : '');
 export const SOCKETS_URL = BASE_URL.replace(/^http/, 'ws');
 
 export const api = {

@@ -49,7 +49,7 @@ const UnlockFeaturesModal: React.FC<UnlockFeaturesModalProps> = ({
                 padding: heightPixel(8),
                 borderRadius: 50,
               }}>
-              <Ionicons name="close" size={24} color={color.black} />
+              <Ionicons name="chevron-back" size={26} color={color.black} />
             </View>
           </TouchableOpacity>
           <Spacer width={widthPixel(45)} />

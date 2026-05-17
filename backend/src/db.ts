@@ -1,9 +1,19 @@
 import { Pool } from 'pg';
 
-// PostgreSQL connection configuration
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL is required. Set it in backend/.env locally or in AWS/App Runner.');
+}
+
+const databaseSsl =
+  process.env.DATABASE_SSL === 'true' ||
+  (process.env.NODE_ENV === 'production' && process.env.DATABASE_SSL !== 'false');
+
+// PostgreSQL connection configuration. Local development uses backend/.env;
+// AWS/App Runner injects DATABASE_URL at runtime.
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  connectionString: databaseUrl,
+  ssl: databaseSsl ? { rejectUnauthorized: false } : false,
 });
 
 // Test the connection

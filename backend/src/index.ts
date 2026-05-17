@@ -50,5 +50,5 @@ app.use((req, res) => {
 
 app.listen(port, () => {
   // eslint-disable-next-line no-console
-  console.log(`BetterBudget backend listening on http://localhost:${port}`);
+  console.log(`BetterBudget backend listening on port ${port}`);
 });

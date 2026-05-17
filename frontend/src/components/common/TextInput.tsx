@@ -1,5 +1,5 @@
 //@ts-ignore
-import React, {JSX, forwardRef, useMemo, useState} from 'react';
+import React, {JSX, forwardRef, useMemo, useRef, useState} from 'react';
 import {
   Image,
   Platform,
@@ -37,6 +37,7 @@ interface InputFieldProps extends React.ComponentProps<typeof RNTextInput> {
   rightIconStyle?: any;
 
   onPress?: () => void;
+  replaceOnFirstType?: boolean;
 
   error?: string;
   touched?: boolean;
@@ -67,6 +68,27 @@ const formatCurrencyText = (text?: string | number | null) => {
   return hasDecimal ? `${formattedInteger}.${decimalPart}` : formattedInteger;
 };
 
+const getFirstTypedAmountText = (previousText: string, nextText: string) => {
+  const previous = normalizeCurrencyText(previousText);
+  const next = normalizeCurrencyText(nextText);
+
+  if (!next || next === previous) {
+    return next;
+  }
+
+  if (previous && next.startsWith(previous)) {
+    return next.slice(previous.length);
+  }
+
+  const previousDigits = previous.replace(/\D/g, '');
+  const nextDigits = next.replace(/\D/g, '');
+  if (previousDigits && nextDigits.startsWith(previousDigits)) {
+    return nextDigits.slice(previousDigits.length);
+  }
+
+  return next;
+};
+
 const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
   title,
   noTitle,
@@ -86,6 +108,7 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
   leftIconStyle,
   rightIconStyle,
   onPress,
+  replaceOnFirstType,
   error,
   touched,
   errorStyle,
@@ -106,15 +129,18 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
   const showError = touched && error;
   const {getCurrencyIcon} = useCurrency();
   const [isFocused, setIsFocused] = useState(false);
+  const shouldReplaceOnNextInputRef = useRef(false);
   const displayValue = useCurrencyIcon ? formatCurrencyText(value as string) : value;
   const shouldSelectTextOnFocus =
-    selectTextOnFocus ??
-    Boolean(
-      useCurrencyIcon ||
-        keyboardType === 'numeric' ||
-        keyboardType === 'decimal-pad' ||
-        keyboardType === 'number-pad',
-    );
+    replaceOnFirstType
+      ? false
+      : selectTextOnFocus ??
+        Boolean(
+          useCurrencyIcon ||
+            keyboardType === 'numeric' ||
+            keyboardType === 'decimal-pad' ||
+            keyboardType === 'number-pad',
+        );
   const [focusSelection, setFocusSelection] = useState<
     {start: number; end: number} | undefined
   >(undefined);
@@ -202,11 +228,18 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
           value={displayValue}
           onChangeText={text => {
             setFocusSelection(undefined);
-            onChangeText?.(useCurrencyIcon ? normalizeCurrencyText(text) : text);
+            const nextText =
+              replaceOnFirstType && shouldReplaceOnNextInputRef.current
+                ? getFirstTypedAmountText(String(displayValue ?? ''), text)
+                : text;
+            shouldReplaceOnNextInputRef.current = false;
+            onChangeText?.(useCurrencyIcon ? normalizeCurrencyText(nextText) : nextText);
           }}
           multiline={multiline}
           onFocus={event => {
             setIsFocused(true);
+            shouldReplaceOnNextInputRef.current =
+              Boolean(replaceOnFirstType) && String(displayValue ?? '').length > 0;
             if (shouldSelectTextOnFocus) {
               const nextValue = String(displayValue ?? '');
               if (nextValue.length > 0) {
@@ -225,6 +258,7 @@ const TextInput = forwardRef<RNTextInput, InputFieldProps>(({
           onBlur={event => {
             setIsFocused(false);
             setFocusSelection(undefined);
+            shouldReplaceOnNextInputRef.current = false;
             onBlur?.(event);
           }}
           placeholder={isFocused ? '' : placeholder}

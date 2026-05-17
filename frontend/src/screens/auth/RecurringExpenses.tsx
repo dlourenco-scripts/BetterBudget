@@ -234,6 +234,11 @@ const RecurringExpenses = () => {
     setFormResetKey(previous => previous + 1);
   };
 
+  const closeSavedExpensesSheet = () => {
+    setShowIncomeSheet(false);
+    clearForm(recurringExpenseResetFormRef.current || undefined);
+  };
+
   const formatDueDay = (dateValue?: string) => {
     if (!dateValue) {
       return '';
@@ -939,7 +944,7 @@ const RecurringExpenses = () => {
       </BottomSheet>
       <BottomSheet
         visible={ShowIncomeSheet}
-        onClose={() => setShowIncomeSheet(false)}
+        onClose={closeSavedExpensesSheet}
         title=""
         hideTitleLine={true}
         backgroundColor={color.inputField}>
@@ -1027,41 +1032,38 @@ const RecurringExpenses = () => {
             <Spacer height={heightPixel(15)} />
           </>
         )}
-        <View style={{gap: heightPixel(7)}}>
+        <Spacer height={heightPixel(8)} />
+        <View style={styles.savedExpenseActionStack}>
           <TouchableOpacity
-            activeOpacity={0.7}
+            activeOpacity={0.85}
             onPress={() => {
               setShowIncomeSheet(false);
-              clearForm();
-            }}>
+              clearForm(recurringExpenseResetFormRef.current || undefined);
+            }}
+            style={styles.savedExpenseActionTouch}>
             <Text
               variant="regular"
               size={17}
               color={color.primary}
-              style={{
-                textAlign: 'center',
-                textDecorationLine: 'underline',
-              }}>
-              + Add New Expense
+              style={styles.savedExpenseActionText}>
+              + Add Expense
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            activeOpacity={0.7}
+            activeOpacity={0.85}
             onPress={() => {
               setShowIncomeSheet(false);
               router.navigate({
                 pathname: '/auth/Debt',
                 params: {budgetId},
               });
-            }}>
+            }}
+            style={styles.savedExpenseActionTouch}>
             <Text
               variant="regular"
               size={17}
               color={color.primary}
-              style={{
-                textAlign: 'center',
-                textDecorationLine: 'underline',
-              }}>
+              style={styles.savedExpenseActionText}>
               + Add Debt
             </Text>
           </TouchableOpacity>
@@ -1390,6 +1392,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     marginBottom: heightPixel(2),
+  },
+  savedExpenseActionStack: {
+    alignItems: 'center',
+    gap: heightPixel(13),
+  },
+  savedExpenseActionTouch: {
+    paddingVertical: heightPixel(9),
+    paddingHorizontal: widthPixel(18),
+    minWidth: widthPixel(165),
+    alignItems: 'flex-start',
+  },
+  savedExpenseActionText: {
+    textAlign: 'left',
   },
   successSheetContent: {
     gap: heightPixel(10),

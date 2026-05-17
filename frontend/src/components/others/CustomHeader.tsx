@@ -670,6 +670,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
               }
               keyboardType="numeric"
               useCurrencyIcon={true}
+              replaceOnFirstType
               inputContainerStyle={
                 customInputBg ? {backgroundColor: customInputBg} : undefined
               }

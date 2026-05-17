@@ -17,3 +17,5 @@ run:
       value: production
     - name: PORT
       value: "4000"
+    - name: DATABASE_SSL
+      value: "true"
