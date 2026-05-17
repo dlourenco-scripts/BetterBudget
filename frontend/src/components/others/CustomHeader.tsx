@@ -339,7 +339,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             const isBudgetPrimary = budget.id === primaryBudgetId;
             const isBudgetSelected = budget.id === selectedBudgetId;
             return (
-              <TouchableOpacity
+              <View
                 key={budget.id}
                 style={{
                   backgroundColor: isDarkMode ? '#0F1115' : color.tabBackground,
@@ -356,18 +356,12 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                   shadowOpacity: isBudgetSelected ? 0.45 : 0,
                   shadowRadius: isBudgetSelected ? 6 : 0,
                   elevation: isBudgetSelected ? 4 : 0,
-                }}
-                onPress={() => {
-                  setShowBudgetSection(false);
-                  setSelectedBudget(budget.name);
-                  onBudgetSelect?.(budget.id);
                 }}>
                 <View
-                  style={{flexDirection: 'row', alignItems: 'center', gap: 8}}>
+                  style={{flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8}}>
                   <TouchableOpacity
                     activeOpacity={0.7}
-                    onPress={(event: any) => {
-                      event.stopPropagation?.();
+                    onPress={() => {
                       if (budget.id !== primaryBudgetId) {
                         onPrimaryBudgetChange?.(budget.id);
                       }
@@ -383,9 +377,18 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                       />
                     )}
                   </TouchableOpacity>
-                  <Text variant="medium" size={17} color={color.black}>
-                    {budget.name}
-                  </Text>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setShowBudgetSection(false);
+                      setSelectedBudget(budget.name);
+                      onBudgetSelect?.(budget.id);
+                    }}
+                    style={{flex: 1}}>
+                    <Text variant="medium" size={17} color={color.black} numberOfLines={1}>
+                      {budget.name}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={{flexDirection: 'row', alignItems: 'center', gap: widthPixel(8)}}>
                   <TouchableOpacity
@@ -420,11 +423,11 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                         height: heightPixel(13),
                         resizeMode: 'contain',
                         tintColor: color.black,
-                      }}
-                    />
-                  </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
+                    }}
+                  />
+                </TouchableOpacity>
+              </View>
+              </View>
             );
           })}
         </View>

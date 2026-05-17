@@ -49,6 +49,7 @@ const essentialCategories = [
   {icon: appImages.Medical, label: 'Medical & Health Care'},
   {icon: appImages.Subscription, label: 'Subscriptions'},
   {icon: appImages.Insurance, label: 'Insurance'},
+  {vectorIcon: 'more-horizontal', label: 'Miscellaneous'},
 ];
 
 const financialObligationCategories = [
@@ -764,14 +765,18 @@ const RecurringExpenses = () => {
                   justifyContent: 'center',
                   alignItems: 'center',
                 }}>
-                <Image
-                  source={item.icon}
-                  style={{
-                    height: heightPixel(35),
-                    width: widthPixel(35),
-                    resizeMode: 'contain',
-                  }}
-                />
+                {item.vectorIcon ? (
+                  <Feather name={item.vectorIcon as any} size={24} color={color.black} />
+                ) : (
+                  <Image
+                    source={item.icon}
+                    style={{
+                      height: heightPixel(35),
+                      width: widthPixel(35),
+                      resizeMode: 'contain',
+                    }}
+                  />
+                )}
               </View>
               <Text
                 variant="medium"
@@ -945,7 +950,7 @@ const RecurringExpenses = () => {
             size={17}
             color={color.black}
             style={{textAlign: 'center'}}>
-            Expense saved.
+            Expenses saved.
           </Text>
         </View>
         <Spacer height={heightPixel(15)} />
@@ -1022,40 +1027,46 @@ const RecurringExpenses = () => {
             <Spacer height={heightPixel(15)} />
           </>
         )}
-        <TouchableOpacity
-          activeOpacity={0.7}
-          onPress={() => {
-            setShowIncomeSheet(false);
-            clearForm();
-          }}>
-          <Text
-            variant="regular"
-            size={17}
-            color={color.primary}
-            style={{
-              textAlign: 'center',
-              textDecorationLine: 'underline',
+        <View style={{gap: heightPixel(7)}}>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              setShowIncomeSheet(false);
+              clearForm();
             }}>
-            Add New Expense
-          </Text>
-        </TouchableOpacity>
-        <Spacer height={heightPixel(20)} />
-        <Button
-          title="Add Debt"
-          variant="outline"
-          titleStyle={{
-            color: color.primary,
-          }}
-          onPress={() => {
-            setShowIncomeSheet(false);
-            router.navigate({
-              pathname: '/auth/Debt',
-              params: {budgetId},
-            });
-            // Navigate to add income screen or open add form
-          }}
-        />
-        <Spacer height={Platform.OS === 'ios' ? 20 : 0} />
+            <Text
+              variant="regular"
+              size={17}
+              color={color.primary}
+              style={{
+                textAlign: 'center',
+                textDecorationLine: 'underline',
+              }}>
+              + Add New Expense
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            activeOpacity={0.7}
+            onPress={() => {
+              setShowIncomeSheet(false);
+              router.navigate({
+                pathname: '/auth/Debt',
+                params: {budgetId},
+              });
+            }}>
+            <Text
+              variant="regular"
+              size={17}
+              color={color.primary}
+              style={{
+                textAlign: 'center',
+                textDecorationLine: 'underline',
+              }}>
+              + Add Debt
+            </Text>
+          </TouchableOpacity>
+        </View>
+        <Spacer height={Platform.OS === 'ios' ? 30 : heightPixel(26)} />
         <Button
           title="Complete"
           onPress={() => {

@@ -290,6 +290,7 @@ const HomeScreen = () => {
   const {addNotification, deleteNotifications, notifications} = useNotifications();
   const debtSaveTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const debtSavedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const hasSelectedInitialBudgetRef = useRef(false);
   const autoAdditionalIncomeProcessingRef = useRef<Set<string>>(new Set());
   const additionalIncomeInputRef = useRef<NativeTextInput>(null);
   const openedAdditionalIncomeNotificationRef = useRef<Set<string>>(new Set());
@@ -1594,10 +1595,16 @@ const HomeScreen = () => {
       }
 
       const storedPrimaryBudgetId = await AsyncStorage.getItem(primaryBudgetStorageKey);
+      const shouldPreferStoredPrimaryOnLoad =
+        !hasSelectedInitialBudgetRef.current && !pendingSelectedBudgetId;
       const selectedId =
         pendingSelectedBudgetId &&
         budgetList.some((budget: any) => budget.id === pendingSelectedBudgetId)
           ? pendingSelectedBudgetId
+          : shouldPreferStoredPrimaryOnLoad &&
+              storedPrimaryBudgetId &&
+              budgetList.some((budget: any) => budget.id === storedPrimaryBudgetId)
+            ? storedPrimaryBudgetId
           : selectedBudgetId && budgetList.some((budget: any) => budget.id === selectedBudgetId)
           ? selectedBudgetId
           : storedPrimaryBudgetId &&
@@ -1608,13 +1615,14 @@ const HomeScreen = () => {
         storedPrimaryBudgetId &&
         budgetList.some((budget: any) => budget.id === storedPrimaryBudgetId)
           ? storedPrimaryBudgetId
-          : selectedId;
+          : budgetList[0]?.id || '';
 
       setSelectedBudgetId(selectedId);
       if (pendingSelectedBudgetId && selectedId === pendingSelectedBudgetId) {
         setPendingSelectedBudgetId('');
       }
       setPrimaryBudgetId(nextPrimaryId);
+      hasSelectedInitialBudgetRef.current = true;
 
       const details = (
         await Promise.all(
@@ -2688,7 +2696,9 @@ const HomeScreen = () => {
               color={isFirstCycle ? color.disabled : color.dateText}
             />
           </TouchableOpacity>
-          <Text style={styles.dateText}>{date.format('MMMM, DD, YYYY')}</Text>
+          <Text style={[styles.dateText, {color: color.primary}]}>
+            {date.format('MMMM D, YYYY')}
+          </Text>
           <TouchableOpacity
             onPress={goNext}
             disabled={isLastCycle}
