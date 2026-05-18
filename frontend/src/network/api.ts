@@ -35,6 +35,8 @@ export const authApi = {
     callApiPromise(Method.POST, api.auth.resendVerification, body),
   forgotPassword: (body: {email: string}) =>
     callApiPromise(Method.POST, api.auth.forgotPassword, body),
+  verifyResetCode: (body: {email: string; code: string}) =>
+    callApiPromise(Method.POST, api.auth.verifyResetCode, body),
   resetPassword: (body: {email: string; code: string; password: string}) =>
     callApiPromise(Method.POST, api.auth.resetPassword, body),
 };

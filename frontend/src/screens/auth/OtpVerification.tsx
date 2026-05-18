@@ -29,6 +29,18 @@ const OtpVerification = () => {
   const setRefreshToken = useAuthStore(state => state.setRefreshToken);
   const setUserData = useAuthStore(state => state.setUserData);
 
+  const getApiMessage = (error: any, fallback: string) =>
+    typeof error === 'string' ? error : error?.message || fallback;
+
+  const updateCooldownFromResponse = (response: any) => {
+    const retryAfterSeconds =
+      response?.data?.retryAfterSeconds ||
+      response?.data?.resendCooldownSeconds;
+    if (typeof retryAfterSeconds === 'number') {
+      setResendCooldown(Math.max(0, Math.ceil(retryAfterSeconds)));
+    }
+  };
+
   useEffect(() => {
     if (resendCooldown <= 0) {
       return;
@@ -53,20 +65,27 @@ const OtpVerification = () => {
         : await authApi.forgotPassword({email: emailAddress});
       if (response.success) {
         setOtp('');
-        setResendCooldown(30);
+        updateCooldownFromResponse(response);
+        if (!response.data?.resendCooldownSeconds) {
+          setResendCooldown(60);
+        }
+        const devCode =
+          response.data?.devVerificationCode || response.data?.devResetCode;
         Alert.alert(
-          response.data?.devVerificationCode
+          devCode
             ? 'Dev verification code'
             : 'Code sent',
-          response.data?.devVerificationCode
-            ? String(response.data.devVerificationCode)
+          devCode
+            ? String(devCode)
             : response.message || 'A new code was sent.',
         );
         return;
       }
+      updateCooldownFromResponse(response);
       Alert.alert('Unable to resend code', response.message || 'Please try again.');
     } catch (error: any) {
-      Alert.alert('Unable to resend code', error?.message || 'Please try again.');
+      updateCooldownFromResponse(error);
+      Alert.alert('Unable to resend code', getApiMessage(error, 'Please try again.'));
     } finally {
       setResending(false);
     }
@@ -98,15 +117,27 @@ const OtpVerification = () => {
         }
         Alert.alert('Verification failed', response.message || 'The code is invalid.');
       } catch (error: any) {
-        Alert.alert('Verification failed', error?.message || 'Please try again.');
+        Alert.alert('Verification failed', getApiMessage(error, 'Please try again.'));
       } finally {
         setLoading(false);
       }
     } else {
-      router.navigate({
-        pathname: '/auth/NewPassword',
-        params: {email: emailAddress, code: otp},
-      });
+      setLoading(true);
+      try {
+        const response = await authApi.verifyResetCode({email: emailAddress, code: otp});
+        if (response.success) {
+          router.navigate({
+            pathname: '/auth/NewPassword',
+            params: {email: emailAddress, code: otp},
+          });
+          return;
+        }
+        Alert.alert('Verification failed', response.message || 'The code is invalid.');
+      } catch (error: any) {
+        Alert.alert('Verification failed', getApiMessage(error, 'Please try again.'));
+      } finally {
+        setLoading(false);
+      }
     }
   };
 

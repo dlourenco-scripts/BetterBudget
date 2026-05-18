@@ -8,6 +8,7 @@ import {authApi} from '@/network/api';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {heightPixel, widthPixel} from '@/services/responsive';
 import {signUpValidationSchema} from '@/services/validators';
+import {useAuthStore} from '@/store';
 
 const Signup = () => {
   const color = useThemeColor();
@@ -15,6 +16,12 @@ const Signup = () => {
   const [ShowPassword, setShowPassword] = useState(false);
   const [ShowRetypePassword, setShowRetypePassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const setToken = useAuthStore(state => state.setToken);
+  const setRefreshToken = useAuthStore(state => state.setRefreshToken);
+  const setUserData = useAuthStore(state => state.setUserData);
+
+  const getApiMessage = (error: any, fallback: string) =>
+    typeof error === 'string' ? error : error?.message || fallback;
 
   const handleSignUp = async (values: {
     email: string;
@@ -29,6 +36,17 @@ const Signup = () => {
         currency: 'USD',
       });
       if (response.success) {
+        if (response.data?.user?.verified) {
+          if (response.data?.token) {
+            setToken(response.data.token);
+            setRefreshToken(response.data.refreshToken ?? '');
+            setUserData(response.data.user);
+            router.replace('/auth/SelectCurrency');
+            return;
+          }
+          router.replace('/auth/SignIn');
+          return;
+        }
         if (response.data?.devVerificationCode) {
           Alert.alert(
             'Dev verification code',
@@ -44,7 +62,7 @@ const Signup = () => {
       }
       Alert.alert('Signup failed', response.message || 'Unable to sign up.');
     } catch (error: any) {
-      Alert.alert('Signup failed', error?.message || 'Unable to sign up.');
+      Alert.alert('Signup failed', getApiMessage(error, 'Unable to sign up.'));
     } finally {
       setLoading(false);
     }

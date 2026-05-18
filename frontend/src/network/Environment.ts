@@ -38,6 +38,7 @@ export const api = {
     verifyEmail: '/auth/verify-email',
     resendVerification: '/auth/resend-verification',
     forgotPassword: '/auth/forgot-password',
+    verifyResetCode: '/auth/verify-reset-code',
     resetPassword: '/auth/reset-password',
   },
   users: {

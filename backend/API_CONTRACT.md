@@ -68,7 +68,7 @@ Response body:
 ```
 
 ### POST /auth/verify-email
-Verify a user email by code or link.
+Verify a user email by code.
 
 Request body:
 ```json
@@ -86,6 +86,31 @@ Response body:
 }
 ```
 
+Invalid or expired verification codes return `400` with a frontend-safe `message` and a `code` of `invalid_code` or `code_expired`.
+
+### POST /auth/resend-verification
+Send a new verification code for an unverified user.
+
+Request body:
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+Response body:
+```json
+{
+  "success": true,
+  "message": "Verification code sent.",
+  "data": {
+    "resendCooldownSeconds": 60
+  }
+}
+```
+
+If another code was requested too recently, the endpoint returns `429` with `code: "resend_cooldown"` and `data.retryAfterSeconds`.
+
 ### POST /auth/forgot-password
 Send a password reset email.
 
@@ -101,6 +126,25 @@ Response body:
 {
   "success": true,
   "message": "Password reset instructions were sent to your email."
+}
+```
+
+### POST /auth/verify-reset-code
+Verify that a password reset code is valid before allowing the user to set a new password.
+
+Request body:
+```json
+{
+  "email": "user@example.com",
+  "code": "123456"
+}
+```
+
+Response body:
+```json
+{
+  "success": true,
+  "message": "Reset code verified."
 }
 ```
 

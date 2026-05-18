@@ -16,6 +16,9 @@ const NewPassword = () => {
   const [ShowRetypePassword, setShowRetypePassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
+  const getApiMessage = (error: any, fallback: string) =>
+    typeof error === 'string' ? error : error?.message || fallback;
+
   const handleChangePassword = async (values: {
     newPassword: string;
     confirmNewPassword: string;
@@ -38,7 +41,7 @@ const NewPassword = () => {
       }
       Alert.alert('Reset failed', response.message || 'Unable to reset password.');
     } catch (error: any) {
-      Alert.alert('Reset failed', error?.message || 'Unable to reset password.');
+      Alert.alert('Reset failed', getApiMessage(error, 'Unable to reset password.'));
     } finally {
       setLoading(false);
     }

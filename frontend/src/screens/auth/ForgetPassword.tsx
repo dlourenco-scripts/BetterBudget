@@ -12,11 +12,17 @@ const ForgetPassword = () => {
 
   const [loading, setLoading] = useState(false);
 
+  const getApiMessage = (error: any, fallback: string) =>
+    typeof error === 'string' ? error : error?.message || fallback;
+
   const handleSendEmail = async (values: {email: string}) => {
     setLoading(true);
     try {
       const response = await authApi.forgotPassword({email: values.email});
       if (response.success) {
+        if (response.data?.devResetCode) {
+          Alert.alert('Dev reset code', String(response.data.devResetCode));
+        }
         router.navigate({
           pathname: '/auth/OtpVerification',
           params: {
@@ -28,7 +34,7 @@ const ForgetPassword = () => {
       }
       Alert.alert('Unable to send reset email', response.message || 'Try again.');
     } catch (error: any) {
-      Alert.alert('Unable to send reset email', error?.message || 'Try again.');
+      Alert.alert('Unable to send reset email', getApiMessage(error, 'Try again.'));
     } finally {
       setLoading(false);
     }

@@ -21,8 +21,10 @@ function makeUser(overrides = {}) {
     savings_goal: 0,
     verification_code: null,
     verification_code_expires_at: null,
+    verification_code_sent_at: null,
     reset_code: null,
     reset_code_expires_at: null,
+    reset_code_sent_at: null,
     ...overrides,
   };
 }
@@ -34,6 +36,17 @@ const mockDb = {
     if (compactSql.startsWith('SELECT id, verified FROM users WHERE email = $1')) {
       const user = users.find(item => item.email === params[0]);
       return {rows: user ? [{id: user.id, verified: user.verified}] : []};
+    }
+
+    if (compactSql.startsWith('SELECT id, verified, verification_code_sent_at FROM users WHERE email = $1')) {
+      const user = users.find(item => item.email === params[0]);
+      return {
+        rows: user ? [{
+          id: user.id,
+          verified: user.verified,
+          verification_code_sent_at: user.verification_code_sent_at,
+        }] : [],
+      };
     }
 
     if (compactSql.startsWith('SELECT * FROM users WHERE email = $1')) {
@@ -51,6 +64,11 @@ const mockDb = {
       return {rows: user ? [{id: user.id}] : []};
     }
 
+    if (compactSql.startsWith('SELECT id, reset_code_sent_at FROM users WHERE email = $1')) {
+      const user = users.find(item => item.email === params[0]);
+      return {rows: user ? [{id: user.id, reset_code_sent_at: user.reset_code_sent_at}] : []};
+    }
+
     if (compactSql.startsWith('INSERT INTO users')) {
       users.push(
         makeUser({
@@ -61,6 +79,7 @@ const mockDb = {
           currency: params[4],
           verification_code: params[5],
           verification_code_expires_at: params[6],
+          verification_code_sent_at: params[7],
         }),
       );
       return {rows: []};
@@ -72,17 +91,32 @@ const mockDb = {
         password_hash: params[0],
         reset_code: null,
         reset_code_expires_at: null,
+        reset_code_sent_at: null,
       });
       return {rows: []};
     }
 
     if (compactSql.startsWith('UPDATE users SET password_hash = $1')) {
-      const user = users.find(item => item.id === params[4]);
+      if (params.length === 3) {
+        const user = users.find(item => item.id === params[2]);
+        Object.assign(user, {
+          password_hash: params[0],
+          currency: params[1],
+          verified: true,
+          verification_code: null,
+          verification_code_expires_at: null,
+          verification_code_sent_at: null,
+        });
+        return {rows: []};
+      }
+
+      const user = users.find(item => item.id === params[5]);
       Object.assign(user, {
         password_hash: params[0],
         currency: params[1],
         verification_code: params[2],
         verification_code_expires_at: params[3],
+        verification_code_sent_at: params[4],
       });
       return {rows: []};
     }
@@ -93,24 +127,27 @@ const mockDb = {
         verified: true,
         verification_code: null,
         verification_code_expires_at: null,
+        verification_code_sent_at: null,
       });
       return {rows: []};
     }
 
     if (compactSql.startsWith('UPDATE users SET verification_code = $1')) {
-      const user = users.find(item => item.id === params[2]);
+      const user = users.find(item => item.id === params[3]);
       Object.assign(user, {
         verification_code: params[0],
         verification_code_expires_at: params[1],
+        verification_code_sent_at: params[2],
       });
       return {rows: []};
     }
 
     if (compactSql.startsWith('UPDATE users SET reset_code = $1')) {
-      const user = users.find(item => item.id === params[2]);
+      const user = users.find(item => item.id === params[3]);
       Object.assign(user, {
         reset_code: params[0],
         reset_code_expires_at: params[1],
+        reset_code_sent_at: params[2],
       });
       return {rows: []};
     }
@@ -171,6 +208,7 @@ test('unverified duplicate signup resends a 6 digit verification code', async ()
     assert.equal(first.status, 201);
     assert.match(users[0].verification_code, /^\d{6}$/);
     const firstCode = users[0].verification_code;
+    users[0].verification_code_sent_at = new Date(Date.now() - 61_000);
 
     const duplicate = await post(baseUrl, '/auth/signup', {
       email: 'beta@example.com',
@@ -234,6 +272,7 @@ test('resend verification creates a usable new code', async () => {
     });
     const user = users[0];
     user.verification_code_expires_at = new Date(Date.now() - 1000);
+    user.verification_code_sent_at = new Date(Date.now() - 61_000);
 
     const resend = await post(baseUrl, '/auth/resend-verification', {
       email: user.email,
@@ -270,6 +309,7 @@ test('password reset code expires and a fresh code can reset the password', asyn
     assert.equal(expired.status, 400);
     assert.match(expired.data.message, /expired/i);
 
+    user.reset_code_sent_at = new Date(Date.now() - 61_000);
     await post(baseUrl, '/auth/forgot-password', {email: user.email});
     const reset = await post(baseUrl, '/auth/reset-password', {
       email: user.email,
@@ -278,5 +318,62 @@ test('password reset code expires and a fresh code can reset the password', asyn
     });
     assert.equal(reset.status, 200);
     assert.equal(user.reset_code, null);
+  });
+});
+
+test('resend verification enforces a cooldown', async () => {
+  await withServer(async baseUrl => {
+    await post(baseUrl, '/auth/signup', {
+      email: 'cooldown@example.com',
+      password: 'password123',
+    });
+
+    const resend = await post(baseUrl, '/auth/resend-verification', {
+      email: 'cooldown@example.com',
+    });
+    assert.equal(resend.status, 429);
+    assert.equal(resend.data.code, 'resend_cooldown');
+    assert.equal(typeof resend.data.data.retryAfterSeconds, 'number');
+  });
+});
+
+test('duplicate unverified signup also respects verification cooldown', async () => {
+  await withServer(async baseUrl => {
+    await post(baseUrl, '/auth/signup', {
+      email: 'signup-cooldown@example.com',
+      password: 'password123',
+    });
+
+    const duplicate = await post(baseUrl, '/auth/signup', {
+      email: 'signup-cooldown@example.com',
+      password: 'password123',
+    });
+    assert.equal(duplicate.status, 429);
+    assert.equal(duplicate.data.code, 'resend_cooldown');
+  });
+});
+
+test('reset code can be verified before setting a new password', async () => {
+  await withServer(async baseUrl => {
+    await post(baseUrl, '/auth/signup', {
+      email: 'verify-reset@example.com',
+      password: 'password123',
+    });
+    const user = users[0];
+    user.reset_code_sent_at = new Date(Date.now() - 61_000);
+    await post(baseUrl, '/auth/forgot-password', {email: user.email});
+
+    const invalid = await post(baseUrl, '/auth/verify-reset-code', {
+      email: user.email,
+      code: '000000',
+    });
+    assert.equal(invalid.status, 400);
+    assert.equal(invalid.data.code, 'invalid_code');
+
+    const valid = await post(baseUrl, '/auth/verify-reset-code', {
+      email: user.email,
+      code: user.reset_code,
+    });
+    assert.equal(valid.status, 200);
   });
 });

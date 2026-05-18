@@ -21,6 +21,16 @@ const SignIn = () => {
   const setRefreshToken = useAuthStore(state => state.setRefreshToken);
   const setUserData = useAuthStore(state => state.setUserData);
 
+  const getApiMessage = (error: any, fallback: string) =>
+    typeof error === 'string' ? error : error?.message || fallback;
+
+  const openVerification = (email: string) => {
+    router.navigate({
+      pathname: '/auth/OtpVerification',
+      params: {from: 'SignUp', email},
+    });
+  };
+
   const handleSignIn = async (values: {email: string; password: string}) => {
     setLoading(true);
     try {
@@ -32,9 +42,31 @@ const SignIn = () => {
         router.replace('/(tabs)/HomeScreen');
         return;
       }
+      if (response.data?.verified === false) {
+        Alert.alert(
+          'Verify your email',
+          response.message || 'Please verify your email before logging in.',
+          [
+            {text: 'Cancel', style: 'cancel'},
+            {text: 'Enter Code', onPress: () => openVerification(values.email)},
+          ],
+        );
+        return;
+      }
       Alert.alert('Login failed', response.message || 'Unable to sign in.');
     } catch (error: any) {
-      Alert.alert('Login failed', error?.message || 'Unable to sign in.');
+      if (error?.data?.verified === false) {
+        Alert.alert(
+          'Verify your email',
+          error.message || 'Please verify your email before logging in.',
+          [
+            {text: 'Cancel', style: 'cancel'},
+            {text: 'Enter Code', onPress: () => openVerification(values.email)},
+          ],
+        );
+        return;
+      }
+      Alert.alert('Login failed', getApiMessage(error, 'Unable to sign in.'));
     } finally {
       setLoading(false);
     }

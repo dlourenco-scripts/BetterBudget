@@ -52,8 +52,10 @@ const initializeSchema = async () => {
         savings_goal DECIMAL(10,2) NOT NULL DEFAULT 0,
         verification_code TEXT,
         verification_code_expires_at TIMESTAMP,
+        verification_code_sent_at TIMESTAMP,
         reset_code TEXT,
         reset_code_expires_at TIMESTAMP,
+        reset_code_sent_at TIMESTAMP,
         created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
       )
@@ -192,7 +194,17 @@ const initializeSchema = async () => {
 
     await client.query(`
       ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS verification_code_sent_at TIMESTAMP
+    `);
+
+    await client.query(`
+      ALTER TABLE users
       ADD COLUMN IF NOT EXISTS reset_code_expires_at TIMESTAMP
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS reset_code_sent_at TIMESTAMP
     `);
 
     await client.query(`
