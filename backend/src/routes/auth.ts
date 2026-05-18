@@ -7,6 +7,7 @@ import {sendPasswordResetEmail, sendVerificationEmail} from '../utils/email';
 
 const router = Router();
 const CODE_EXPIRATION_MINUTES = 15;
+const skipEmailVerification = process.env.SKIP_EMAIL_VERIFICATION === 'true';
 
 const emailValidator = body('email')
   .trim()
@@ -70,6 +71,36 @@ router.post(
           return res.status(409).json({success: false, message: 'Email already exists.'});
         }
 
+        if (skipEmailVerification) {
+          await db.query(
+            `UPDATE users
+             SET password_hash = $1,
+               currency = $2,
+               verified = true,
+               verification_code = NULL,
+               verification_code_expires_at = NULL,
+               updated_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [hashPassword(password), currency, existingUser.rows[0].id],
+          );
+
+          return res.status(200).json({
+            success: true,
+            message: 'Account created. Email verification skipped for test mode.',
+            data: {
+              user: {
+                id: existingUser.rows[0].id,
+                email,
+                fullName: '',
+                verified: true,
+                currency,
+                goalType: 'save',
+                savingsGoal: 0,
+              },
+            },
+          });
+        }
+
         const verificationCode = createVerificationCode();
         await db.query(
           `UPDATE users
@@ -105,24 +136,37 @@ router.post(
       const id = uuidv4();
       const passwordHash = hashPassword(password);
       const verificationCode = createVerificationCode();
+      const isVerified = skipEmailVerification;
 
       await db.query(
         'INSERT INTO users (id, email, password_hash, verified, currency, verification_code, verification_code_expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [id, email, passwordHash, false, currency, verificationCode, createCodeExpiration()]
+        [
+          id,
+          email,
+          passwordHash,
+          isVerified,
+          currency,
+          isVerified ? null : verificationCode,
+          isVerified ? null : createCodeExpiration(),
+        ]
       );
 
-      await sendVerificationEmail(email, verificationCode);
+      if (!skipEmailVerification) {
+        await sendVerificationEmail(email, verificationCode);
+      }
 
       return res.status(201).json({
         success: true,
-        message: 'Signup successful. Verification email sent.',
+        message: skipEmailVerification
+          ? 'Signup successful. Email verification skipped for test mode.'
+          : 'Signup successful. Verification email sent.',
         data: {
-          ...devCodePayload(verificationCode),
+          ...(skipEmailVerification ? {} : devCodePayload(verificationCode)),
           user: {
             id,
             email,
             fullName: '',
-            verified: false,
+            verified: isVerified,
             currency,
             goalType: 'save',
             savingsGoal: 0,
