@@ -12,8 +12,13 @@ function hash(value: string) {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
-function hmac(key: crypto.BinaryLike, value: string) {
-  return crypto.createHmac('sha256', key).update(value, 'utf8').digest();
+type HmacKey = crypto.BinaryLike | Buffer | Uint8Array;
+
+function hmac(key: HmacKey, value: string) {
+  return crypto
+    .createHmac('sha256', key as unknown as crypto.BinaryLike)
+    .update(value, 'utf8')
+    .digest();
 }
 
 function getSignatureKey(secretKey: string, dateStamp: string, region: string, service: string) {
@@ -88,7 +93,7 @@ async function sendSesEmail({to, subject, text}: EmailInput) {
   ].join('\n');
   const signingKey = getSignatureKey(secretAccessKey, dateStamp, region, service);
   const signature = crypto
-    .createHmac('sha256', signingKey)
+    .createHmac('sha256', signingKey as unknown as crypto.BinaryLike)
     .update(stringToSign, 'utf8')
     .digest('hex');
   const authorization = `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}, SignedHeaders=${signedHeaders}, Signature=${signature}`;
