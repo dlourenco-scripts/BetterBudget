@@ -17,9 +17,7 @@ const SignIn = () => {
   const [ShowPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const setToken = useAuthStore(state => state.setToken);
-  const setRefreshToken = useAuthStore(state => state.setRefreshToken);
-  const setUserData = useAuthStore(state => state.setUserData);
+  const setSession = useAuthStore(state => state.setSession);
 
   const getApiMessage = (error: any, fallback: string) =>
     typeof error === 'string' ? error : error?.message || fallback;
@@ -36,9 +34,11 @@ const SignIn = () => {
     try {
       const response = await authApi.login(values);
       if (response.success && response.data) {
-        setToken(response.data.token);
-        setRefreshToken(response.data.refreshToken ?? '');
-        setUserData(response.data.user);
+        setSession({
+          token: response.data.token,
+          refreshToken: response.data.refreshToken,
+          user: response.data.user,
+        });
         router.replace('/(tabs)/HomeScreen');
         return;
       }

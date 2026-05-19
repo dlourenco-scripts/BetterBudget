@@ -3,6 +3,7 @@ import {createJSONStorage, persist} from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface AuthState {
+  hasHydrated: boolean;
   isLoggedIn: boolean;
   token?: string;
   userData?: any;
@@ -10,6 +11,8 @@ interface AuthState {
   firstLogin?: boolean;
   userGroups?: string[];
   activeAlert?: string | null;
+  setHasHydrated: (hasHydrated: boolean) => void;
+  setSession: (session: {token: string; refreshToken?: string; user: any}) => void;
   setToken: (token: string) => void;
   setRefreshToken: (refreshToken: string) => void;
   setUserData: (user: any) => void;
@@ -20,6 +23,7 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()(
   persist(
     (set, get) => ({
+      hasHydrated: false,
       isLoggedIn: false,
       token: '',
       refreshToken: '',
@@ -27,6 +31,14 @@ export const useAuthStore = create<AuthState>()(
       firstLogin: true,
       userGroups: [],
       activeAlert: null,
+      setHasHydrated: hasHydrated => set({hasHydrated}),
+      setSession: ({token, refreshToken = '', user}) =>
+        set({
+          isLoggedIn: true,
+          token,
+          refreshToken,
+          userData: user,
+        }),
       setToken: (token: string) => set({token}),
       setRefreshToken: (refreshToken: string) => set({refreshToken}),
       setUserData: user => set({userData: user, isLoggedIn: true}),
@@ -48,11 +60,26 @@ export const useAuthStore = create<AuthState>()(
           token: '',
           userData: undefined,
           refreshToken: '',
+          firstLogin: true,
+          userGroups: [],
+          activeAlert: null,
         }),
     }),
     {
       name: 'auth-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      partialize: state => ({
+        isLoggedIn: state.isLoggedIn,
+        token: state.token,
+        refreshToken: state.refreshToken,
+        userData: state.userData,
+        firstLogin: state.firstLogin,
+        userGroups: state.userGroups,
+        activeAlert: state.activeAlert,
+      }),
+      onRehydrateStorage: () => state => {
+        state?.setHasHydrated(true);
+      },
     },
   ),
 );

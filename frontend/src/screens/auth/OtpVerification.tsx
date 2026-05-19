@@ -25,9 +25,7 @@ const OtpVerification = () => {
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(30);
-  const setToken = useAuthStore(state => state.setToken);
-  const setRefreshToken = useAuthStore(state => state.setRefreshToken);
-  const setUserData = useAuthStore(state => state.setUserData);
+  const setSession = useAuthStore(state => state.setSession);
 
   const getApiMessage = (error: any, fallback: string) =>
     typeof error === 'string' ? error : error?.message || fallback;
@@ -108,9 +106,11 @@ const OtpVerification = () => {
         const response = await authApi.verifyEmail({email: emailAddress, code: otp});
         if (response.success) {
           if (response.data?.token) {
-            setToken(response.data.token);
-            setRefreshToken(response.data.refreshToken ?? '');
-            setUserData(response.data.user);
+            setSession({
+              token: response.data.token,
+              refreshToken: response.data.refreshToken,
+              user: response.data.user,
+            });
           }
           router.replace('/auth/SelectCurrency');
           return;

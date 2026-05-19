@@ -1,7 +1,7 @@
 import React from 'react';
 import {Image, Platform, View} from 'react-native';
 // import {Image} from 'react-native';
-import {Tabs} from 'expo-router';
+import {Redirect, Tabs} from 'expo-router';
 import {Text} from '@/components';
 import {appImages} from '@/constants/assets';
 import {useNotifications} from '@/context/NotificationProvider';
@@ -9,15 +9,28 @@ import {useNotifications} from '@/context/NotificationProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {heightPixel, widthPixel} from '@/services/responsive';
+import {useAuthStore} from '@/store';
 
 export default function TabsLayout() {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const {unreadCount} = useNotifications();
+  const hasHydrated = useAuthStore(state => state.hasHydrated);
+  const isLoggedIn = useAuthStore(state => state.isLoggedIn);
+  const token = useAuthStore(state => state.token);
 
   const activeColor = isDarkMode ? color.primary : color.black;
   const inactiveColor = isDarkMode ? '#666666' : color.tabiconFocus;
+
+  if (!hasHydrated) {
+    return null;
+  }
+
+  if (!isLoggedIn || !token) {
+    return <Redirect href="/auth/SignIn" />;
+  }
+
   return (
     <Tabs
       initialRouteName="HomeScreen"

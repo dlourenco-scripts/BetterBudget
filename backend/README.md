@@ -70,6 +70,10 @@ SES_FROM_EMAIL=no-reply@your-verified-domain.com
 
 The SES identity for `SES_FROM_EMAIL` must be verified in the same AWS Region used by `AWS_REGION`. If the account is still in the SES sandbox, AWS only allows sending to verified recipient addresses.
 
+## Auth Sessions
+
+Login and email verification return a JWT `token` and a `refreshToken` field for frontend compatibility. At the moment both values are signed with the same `TOKEN_EXPIRES_IN` lifetime; there is not a separate refresh-token rotation endpoint yet. Keep `TOKEN_EXPIRES_IN=7d` for TestFlight unless a shorter forced-login window is intended.
+
 ## Routes
 
 - `GET /` - health check

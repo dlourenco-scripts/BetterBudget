@@ -71,7 +71,7 @@ const handleAuthenticationError = (
     SNACKBARS.RedSnackbar(message);
   }
   logout();
-  router?.navigate({
+  router?.replace({
     pathname: '/auth/SignIn',
     params: {isFromSignup: true},
   });

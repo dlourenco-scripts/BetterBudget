@@ -25,7 +25,7 @@ import {appImages} from '@/constants/assets';
 import {CurrencyCode, useCurrency} from '@/context/CurrencyProvider';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
-import {useThemeStore} from '@/store';
+import {useAuthStore, useThemeStore} from '@/store';
 
 const Settings = () => {
   const color = useThemeColor();
@@ -36,6 +36,7 @@ const Settings = () => {
   const {selectedCurrency, setCurrency} = useCurrency();
   const [showLanguageSheet, setShowLanguageSheet] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const logout = useAuthStore(state => state.logout);
 
   const themeOptions: RadioOption[] = [
     {label: 'Light', value: 'light'},
@@ -114,7 +115,10 @@ const Settings = () => {
       id: '9',
       title: 'Logout',
       image: appImages.Logout,
-      onPress: () => router.replace('/auth/SignIn'),
+      onPress: () => {
+        logout();
+        router.replace('/auth/SignIn');
+      },
     },
   ];
 

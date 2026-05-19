@@ -11,7 +11,7 @@ import {useAuthStore} from '@/store';
 const Splash = ({fontLoading}: {fontLoading: boolean}) => {
   const isLoggedIn = useAuthStore(state => state.isLoggedIn);
   const token = useAuthStore(state => state.token);
-  const hasHydrated = useAuthStore.persist.hasHydrated();
+  const hasHydrated = useAuthStore(state => state.hasHydrated);
 
   useEffect(() => {
     if (fontLoading || !hasHydrated) {
