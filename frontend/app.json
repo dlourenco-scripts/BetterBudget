@@ -25,7 +25,9 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.betterbudget.app",
-      "permissions": ["android.permission.RECORD_AUDIO"],
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ],
       "runtimeVersion": "1.0.0"
     },
     "web": {
@@ -46,7 +48,9 @@
           "photosPermission": "The app accesses your photos to let you share them with your friends."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-apple-authentication",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true

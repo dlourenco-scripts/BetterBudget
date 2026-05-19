@@ -8,6 +8,7 @@ import {appImages} from '@/constants/assets';
 import {useAuthStore} from '@/store';
 import {authApi} from '@/network/api';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {useSocialLogin} from '@/hooks/useSocialLogin';
 import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 import {signInValidationSchema} from '@/services/validators';
 
@@ -16,6 +17,7 @@ const SignIn = () => {
   const styles = createStyles(color);
   const [ShowPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const {loadingProvider, signInWithApple, signInWithGoogle} = useSocialLogin();
 
   const setSession = useAuthStore(state => state.setSession);
 
@@ -193,7 +195,9 @@ const SignIn = () => {
             borderRadius: 50,
             padding: 10,
           }}
-          activeOpacity={0.8}>
+          activeOpacity={0.8}
+          disabled={Boolean(loadingProvider)}
+          onPress={signInWithGoogle}>
           <Image source={appImages.Googleimg} style={styles.socialIcon} />
         </TouchableOpacity>
         <TouchableOpacity
@@ -203,7 +207,9 @@ const SignIn = () => {
             borderRadius: 50,
             padding: 10,
           }}
-          activeOpacity={0.8}>
+          activeOpacity={0.8}
+          disabled={Boolean(loadingProvider)}
+          onPress={signInWithApple}>
           <Image
             source={
               color.bg === '#121212'

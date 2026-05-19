@@ -35,6 +35,7 @@ export const api = {
   auth: {
     signup: '/auth/signup',
     login: '/auth/login',
+    socialLogin: '/auth/social-login',
     verifyEmail: '/auth/verify-email',
     resendVerification: '/auth/resend-verification',
     forgotPassword: '/auth/forgot-password',

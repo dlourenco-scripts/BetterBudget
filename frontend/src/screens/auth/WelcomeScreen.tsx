@@ -10,12 +10,14 @@ import {router} from 'expo-router';
 import {Button, Spacer, Text, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {useSocialLogin} from '@/hooks/useSocialLogin';
 import {heightPixel, widthPixel} from '@/services/responsive';
 
 const WelcomeScreen = () => {
   const color = useThemeColor();
   const isDarkMode = color.bg === '#121212';
   const styles = createStyles(color, isDarkMode);
+  const {loadingProvider, signInWithApple, signInWithGoogle} = useSocialLogin();
 
   return (
     <Wrapper keyboadEnabled={false}>
@@ -70,7 +72,9 @@ const WelcomeScreen = () => {
         leftIcon={
           <Image source={appImages.Googleimg} style={styles.googleIcon} />
         }
-        onPress={() => {}}
+        onPress={signInWithGoogle}
+        isLoading={loadingProvider === 'google'}
+        disabled={Boolean(loadingProvider)}
         style={styles.button}
         containerStyle={styles.buttonContainer}
       />
@@ -88,7 +92,9 @@ const WelcomeScreen = () => {
             style={styles.appleIcon}
           />
         }
-        onPress={() => {}}
+        onPress={signInWithApple}
+        isLoading={loadingProvider === 'apple'}
+        disabled={Boolean(loadingProvider)}
         style={styles.button}
         containerStyle={styles.buttonContainer}
       />

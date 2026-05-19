@@ -29,6 +29,13 @@ export const authApi = {
     callApiPromise(Method.POST, api.auth.signup, body),
   login: (body: {email: string; password: string}) =>
     callApiPromise(Method.POST, api.auth.login, body),
+  socialLogin: (body: {
+    provider: 'google' | 'apple';
+    idToken: string;
+    email?: string;
+    fullName?: string;
+    currency?: string;
+  }) => callApiPromise(Method.POST, api.auth.socialLogin, body),
   verifyEmail: (body: {email: string; code: string}) =>
     callApiPromise(Method.POST, api.auth.verifyEmail, body),
   resendVerification: (body: {email: string}) =>

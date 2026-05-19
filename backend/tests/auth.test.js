@@ -11,6 +11,10 @@ function makeUser(overrides = {}) {
     email: overrides.email || 'user@example.com',
     password_hash: overrides.password_hash || '',
     full_name: '',
+    profile_image: '',
+    auth_provider: 'password',
+    google_id: null,
+    apple_id: null,
     verified: false,
     currency: 'USD',
     theme: 'light',
@@ -54,6 +58,16 @@ const mockDb = {
       return {rows: user ? [user] : []};
     }
 
+    if (compactSql.startsWith('SELECT * FROM users WHERE google_id = $1')) {
+      const user = users.find(item => item.google_id === params[0]);
+      return {rows: user ? [user] : []};
+    }
+
+    if (compactSql.startsWith('SELECT * FROM users WHERE apple_id = $1')) {
+      const user = users.find(item => item.apple_id === params[0]);
+      return {rows: user ? [user] : []};
+    }
+
     if (compactSql.startsWith('SELECT * FROM users WHERE id = $1')) {
       const user = users.find(item => item.id === params[0]);
       return {rows: user ? [user] : []};
@@ -70,6 +84,24 @@ const mockDb = {
     }
 
     if (compactSql.startsWith('INSERT INTO users')) {
+      if (compactSql.includes('auth_provider')) {
+        const providerColumn = compactSql.includes('google_id') ? 'google_id' : 'apple_id';
+        users.push(
+          makeUser({
+            id: params[0],
+            email: params[1],
+            password_hash: params[2],
+            full_name: params[3],
+            profile_image: params[4],
+            auth_provider: params[5],
+            [providerColumn]: params[6],
+            verified: true,
+            currency: params[7],
+          }),
+        );
+        return {rows: []};
+      }
+
       users.push(
         makeUser({
           id: params[0],
@@ -92,6 +124,19 @@ const mockDb = {
         reset_code: null,
         reset_code_expires_at: null,
         reset_code_sent_at: null,
+      });
+      return {rows: []};
+    }
+
+    if (compactSql.startsWith('UPDATE users SET google_id = $1') || compactSql.startsWith('UPDATE users SET apple_id = $1')) {
+      const user = users.find(item => item.id === params[4]);
+      const providerColumn = compactSql.startsWith('UPDATE users SET google_id = $1') ? 'google_id' : 'apple_id';
+      Object.assign(user, {
+        [providerColumn]: params[0],
+        auth_provider: user.auth_provider === 'password' ? user.auth_provider : params[1],
+        verified: true,
+        full_name: user.full_name || params[2],
+        profile_image: user.profile_image || params[3],
       });
       return {rows: []};
     }
@@ -191,12 +236,15 @@ async function post(baseUrl, path, body) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
   });
-  const data = await response.json();
+  const text = await response.text();
+  const data = text && text.trim().startsWith('{') ? JSON.parse(text) : {raw: text};
   return {status: response.status, data};
 }
 
 test.beforeEach(() => {
   users.length = 0;
+  delete process.env.GOOGLE_CLIENT_IDS;
+  global.fetch = fetch;
 });
 
 test('unverified duplicate signup resends a 6 digit verification code', async () => {
@@ -376,4 +424,54 @@ test('reset code can be verified before setting a new password', async () => {
     });
     assert.equal(valid.status, 200);
   });
+});
+
+test('google social login creates a verified session and can log in again', async () => {
+  const originalFetch = global.fetch;
+  process.env.GOOGLE_CLIENT_IDS = 'google-client-id';
+  global.fetch = async (url, options) => {
+    const requestUrl = typeof url === 'string' ? url : url?.url || String(url);
+    if (!requestUrl.includes('oauth2.googleapis.com/tokeninfo')) {
+      return originalFetch(url, options);
+    }
+
+    return {
+      ok: true,
+      async json() {
+        return {
+          aud: 'google-client-id',
+          sub: 'google-user-1',
+          email: 'google@example.com',
+          email_verified: 'true',
+          name: 'Google User',
+          picture: 'https://example.com/avatar.png',
+        };
+      },
+    };
+  };
+
+  try {
+    await withServer(async baseUrl => {
+      const first = await post(baseUrl, '/auth/social-login', {
+        provider: 'google',
+        idToken: 'google-id-token',
+      });
+      assert.equal(first.status, 200);
+      assert.equal(first.data.success, true);
+      assert.equal(first.data.data.isNewUser, true);
+      assert.equal(first.data.data.user.email, 'google@example.com');
+      assert.equal(first.data.data.user.verified, true);
+      assert.ok(first.data.data.token);
+
+      const second = await post(baseUrl, '/auth/social-login', {
+        provider: 'google',
+        idToken: 'google-id-token',
+      });
+      assert.equal(second.status, 200);
+      assert.equal(second.data.data.isNewUser, false);
+      assert.equal(second.data.data.user.id, first.data.data.user.id);
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
 });

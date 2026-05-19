@@ -40,6 +40,9 @@ const initializeSchema = async () => {
         password_hash TEXT NOT NULL,
         full_name TEXT NOT NULL DEFAULT '',
         profile_image TEXT,
+        auth_provider TEXT NOT NULL DEFAULT 'password',
+        google_id TEXT UNIQUE,
+        apple_id TEXT UNIQUE,
         verified BOOLEAN NOT NULL DEFAULT false,
         currency TEXT NOT NULL DEFAULT 'USD',
         theme TEXT NOT NULL DEFAULT 'light',
@@ -180,6 +183,21 @@ const initializeSchema = async () => {
     await client.query(`
       ALTER TABLE users
       ADD COLUMN IF NOT EXISTS profile_image TEXT
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS google_id TEXT UNIQUE
+    `);
+
+    await client.query(`
+      ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS apple_id TEXT UNIQUE
     `);
 
     await client.query(`

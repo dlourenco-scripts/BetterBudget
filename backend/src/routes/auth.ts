@@ -1,6 +1,7 @@
 import {Router} from 'express';
 import {body, validationResult} from 'express-validator';
 import {v4 as uuidv4} from 'uuid';
+import crypto from 'crypto';
 import db from '../db';
 import {hashPassword, comparePassword, createToken} from '../utils/auth';
 import {sendPasswordResetEmail, sendVerificationEmail} from '../utils/email';
@@ -9,6 +10,9 @@ const router = Router();
 const CODE_EXPIRATION_MINUTES = 15;
 const RESEND_COOLDOWN_SECONDS = Number(process.env.AUTH_CODE_RESEND_COOLDOWN_SECONDS || 60);
 const skipEmailVerification = process.env.SKIP_EMAIL_VERIFICATION === 'true';
+const APPLE_ISSUER = 'https://appleid.apple.com';
+const GOOGLE_TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo';
+const APPLE_KEYS_URL = 'https://appleid.apple.com/auth/keys';
 
 const emailValidator = body('email')
   .trim()
@@ -87,6 +91,208 @@ function toAuthUser(user: any) {
     goalType: user.goal_type,
     savingsGoal: Number(user.savings_goal || 0),
   };
+}
+
+type SocialProvider = 'google' | 'apple';
+
+type SocialIdentity = {
+  provider: SocialProvider;
+  providerUserId: string;
+  email: string;
+  emailVerified: boolean;
+  fullName?: string;
+  profileImage?: string;
+};
+
+function configuredAudiences(provider: SocialProvider) {
+  const values =
+    provider === 'google'
+      ? [
+          process.env.GOOGLE_CLIENT_IDS,
+          process.env.GOOGLE_WEB_CLIENT_ID,
+          process.env.GOOGLE_IOS_CLIENT_ID,
+          process.env.GOOGLE_ANDROID_CLIENT_ID,
+        ]
+      : [
+          process.env.APPLE_CLIENT_ID,
+          process.env.APPLE_BUNDLE_ID,
+          process.env.IOS_BUNDLE_ID,
+          process.env.EXPO_PUBLIC_APPLE_CLIENT_ID,
+          'com.betterbudget.app',
+        ];
+
+  return values
+    .flatMap(value => String(value || '').split(','))
+    .map(value => value.trim())
+    .filter(Boolean);
+}
+
+function decodeBase64Url(value: string) {
+  return Buffer.from(value.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+}
+
+function decodeJwtPart(token: string, partIndex: number) {
+  const part = token.split('.')[partIndex];
+  if (!part) {
+    throw new Error('Invalid identity token.');
+  }
+  return JSON.parse(decodeBase64Url(part).toString('utf8'));
+}
+
+function isAudienceAllowed(audience: string | string[], allowedAudiences: string[]) {
+  const audiences = Array.isArray(audience) ? audience : [audience];
+  return audiences.some(item => allowedAudiences.includes(item));
+}
+
+function socialConfigError(provider: SocialProvider) {
+  return `${provider === 'google' ? 'Google' : 'Apple'} login is not configured.`;
+}
+
+async function verifyGoogleIdentityToken(idToken: string): Promise<SocialIdentity> {
+  const allowedAudiences = configuredAudiences('google');
+  if (allowedAudiences.length === 0) {
+    throw new Error(socialConfigError('google'));
+  }
+
+  const response = await fetch(`${GOOGLE_TOKENINFO_URL}?id_token=${encodeURIComponent(idToken)}`);
+  const payload: any = await response.json();
+  if (!response.ok) {
+    throw new Error(payload?.error_description || 'Google sign-in token could not be verified.');
+  }
+
+  if (!payload.sub || !payload.email || !isAudienceAllowed(payload.aud, allowedAudiences)) {
+    throw new Error('Google sign-in token is not valid for this app.');
+  }
+
+  const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+  if (!emailVerified) {
+    throw new Error('Google account email is not verified.');
+  }
+
+  return {
+    provider: 'google',
+    providerUserId: String(payload.sub),
+    email: String(payload.email).toLowerCase(),
+    emailVerified,
+    fullName: payload.name,
+    profileImage: payload.picture,
+  };
+}
+
+async function verifyAppleIdentityToken(idToken: string): Promise<SocialIdentity> {
+  const allowedAudiences = configuredAudiences('apple');
+  const header = decodeJwtPart(idToken, 0);
+  const payload = decodeJwtPart(idToken, 1);
+  const response = await fetch(APPLE_KEYS_URL);
+  const keysPayload: any = await response.json();
+  if (!response.ok) {
+    throw new Error('Apple sign-in keys could not be loaded.');
+  }
+
+  const key = keysPayload.keys?.find((candidate: any) => candidate.kid === header.kid);
+  if (!key) {
+    throw new Error('Apple sign-in token key was not recognized.');
+  }
+
+  const [encodedHeader, encodedPayload, encodedSignature] = idToken.split('.');
+  const verifier = crypto.createVerify('RSA-SHA256');
+  verifier.update(`${encodedHeader}.${encodedPayload}`);
+  verifier.end();
+  const publicKey = crypto.createPublicKey({key, format: 'jwk'});
+  const signature = decodeBase64Url(encodedSignature);
+  const signatureIsValid = verifier.verify(
+    publicKey,
+    new Uint8Array(signature.buffer, signature.byteOffset, signature.byteLength),
+  );
+
+  if (
+    !signatureIsValid ||
+    payload.iss !== APPLE_ISSUER ||
+    !payload.sub ||
+    !isAudienceAllowed(payload.aud, allowedAudiences) ||
+    Number(payload.exp || 0) * 1000 < Date.now()
+  ) {
+    throw new Error('Apple sign-in token is not valid for this app.');
+  }
+
+  const emailVerified = payload.email_verified === true || payload.email_verified === 'true';
+
+  return {
+    provider: 'apple',
+    providerUserId: String(payload.sub),
+    email: payload.email ? String(payload.email).toLowerCase() : '',
+    emailVerified,
+  };
+}
+
+async function verifySocialIdentity(provider: SocialProvider, idToken: string) {
+  return provider === 'google'
+    ? verifyGoogleIdentityToken(idToken)
+    : verifyAppleIdentityToken(idToken);
+}
+
+async function findSocialUser(identity: SocialIdentity) {
+  const providerColumn = identity.provider === 'google' ? 'google_id' : 'apple_id';
+  const byProvider = await db.query(`SELECT * FROM users WHERE ${providerColumn} = $1`, [
+    identity.providerUserId,
+  ]);
+  if (byProvider.rows[0]) {
+    return byProvider.rows[0];
+  }
+
+  if (!identity.email) {
+    return null;
+  }
+
+  const byEmail = await db.query('SELECT * FROM users WHERE email = $1', [identity.email]);
+  return byEmail.rows[0] || null;
+}
+
+async function upsertSocialUser(identity: SocialIdentity, fallbackFullName = '', currency = 'USD') {
+  const providerColumn = identity.provider === 'google' ? 'google_id' : 'apple_id';
+  const fullName = identity.fullName || fallbackFullName || '';
+  const existingUser = await findSocialUser(identity);
+
+  if (existingUser) {
+    await db.query(
+      `UPDATE users
+       SET ${providerColumn} = $1,
+         auth_provider = CASE WHEN auth_provider = 'password' THEN auth_provider ELSE $2 END,
+         verified = true,
+         full_name = CASE WHEN full_name = '' THEN $3 ELSE full_name END,
+         profile_image = COALESCE(profile_image, $4),
+         updated_at = CURRENT_TIMESTAMP
+       WHERE id = $5`,
+      [identity.providerUserId, identity.provider, fullName, identity.profileImage || null, existingUser.id],
+    );
+
+    const updated = await db.query('SELECT * FROM users WHERE id = $1', [existingUser.id]);
+    return {user: updated.rows[0], isNewUser: false};
+  }
+
+  if (!identity.email) {
+    throw new Error('This social account did not provide an email address.');
+  }
+
+  const id = uuidv4();
+  await db.query(
+    `INSERT INTO users
+     (id, email, password_hash, full_name, profile_image, auth_provider, ${providerColumn}, verified, currency)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8)`,
+    [
+      id,
+      identity.email,
+      '',
+      fullName,
+      identity.profileImage || null,
+      identity.provider,
+      identity.providerUserId,
+      currency,
+    ],
+  );
+
+  const created = await db.query('SELECT * FROM users WHERE id = $1', [id]);
+  return {user: created.rows[0], isNewUser: true};
 }
 
 router.post(
@@ -299,6 +505,64 @@ router.post(
     } catch (error) {
       console.error('Login error:', error);
       return res.status(500).json({success: false, message: 'Internal server error.'});
+    }
+  },
+);
+
+router.post(
+  '/social-login',
+  body('provider').isIn(['google', 'apple']).withMessage('Social login provider is not supported.'),
+  body('idToken').isString().notEmpty().withMessage('Social login token is required.'),
+  body('email').optional().isEmail().withMessage('Please enter a valid email address.').bail().toLowerCase(),
+  body('fullName').optional().isString(),
+  body('currency').optional().isString(),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json(validationErrorResponse(errors));
+    }
+
+    const {provider, idToken, email, fullName = '', currency = 'USD'} = req.body as {
+      provider: SocialProvider;
+      idToken: string;
+      email?: string;
+      fullName?: string;
+      currency?: string;
+    };
+
+    try {
+      const identity = await verifySocialIdentity(provider, idToken);
+      if (provider === 'apple' && !identity.email && email) {
+        identity.email = String(email).toLowerCase();
+      }
+      if (!identity.emailVerified && provider !== 'apple') {
+        return res.status(401).json({
+          success: false,
+          message: 'Social login email is not verified.',
+        });
+      }
+
+      const {user, isNewUser} = await upsertSocialUser(identity, fullName, currency);
+      const token = createToken(user.id);
+      const refreshToken = createToken(user.id);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Social login successful.',
+        data: {
+          token,
+          refreshToken,
+          isNewUser,
+          user: toAuthUser(user),
+        },
+      });
+    } catch (error) {
+      console.error('Social login error:', error);
+      const message =
+        error instanceof Error && error.message.includes('not configured')
+          ? error.message
+          : 'Social login could not be verified. Please try again.';
+      return res.status(401).json({success: false, message});
     }
   },
 );

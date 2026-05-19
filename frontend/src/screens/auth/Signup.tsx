@@ -6,6 +6,7 @@ import {Button, Spacer, Text, TextInput, Wrapper} from '@/components';
 import {appImages} from '@/constants/assets';
 import {authApi} from '@/network/api';
 import {useThemeColor} from '@/hooks/useThemeColor';
+import {useSocialLogin} from '@/hooks/useSocialLogin';
 import {heightPixel, widthPixel} from '@/services/responsive';
 import {signUpValidationSchema} from '@/services/validators';
 import {useAuthStore} from '@/store';
@@ -16,6 +17,7 @@ const Signup = () => {
   const [ShowPassword, setShowPassword] = useState(false);
   const [ShowRetypePassword, setShowRetypePassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const {loadingProvider, signInWithApple, signInWithGoogle} = useSocialLogin();
   const setSession = useAuthStore(state => state.setSession);
 
   const getApiMessage = (error: any, fallback: string) =>
@@ -243,7 +245,9 @@ const Signup = () => {
                 borderWidth: 1,
                 borderRadius: 50,
                 padding: 10,
-              }}>
+              }}
+              disabled={Boolean(loadingProvider)}
+              onPress={signInWithGoogle}>
               <Image
                 source={appImages.Googleimg}
                 style={{
@@ -259,7 +263,9 @@ const Signup = () => {
                 borderWidth: 1,
                 borderRadius: 50,
                 padding: 10,
-              }}>
+              }}
+              disabled={Boolean(loadingProvider)}
+              onPress={signInWithApple}>
               <Image
                 source={
                   color.bg === '#121212'
