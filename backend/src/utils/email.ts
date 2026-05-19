@@ -110,8 +110,24 @@ async function sendSesEmail({to, subject, text}: EmailInput) {
 
   if (!response.ok) {
     const errorBody = await response.text();
+    console.error('SES send failed', {
+      status: response.status,
+      region,
+      fromEmail,
+      toDomain: to.split('@')[1] || '',
+      errorBody,
+    });
     throw new Error(`SES send failed: ${response.status} ${errorBody}`);
   }
+
+  const responseBody = await response.text();
+  console.log('SES send succeeded', {
+    status: response.status,
+    region,
+    fromEmail,
+    toDomain: to.split('@')[1] || '',
+    responseBody,
+  });
 }
 
 export async function sendVerificationEmail(email: string, code: string) {
