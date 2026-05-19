@@ -24,10 +24,18 @@ function formatAppleName(fullName?: AppleAuthentication.AppleAuthenticationFullN
 export function useSocialLogin() {
   const setSession = useAuthStore(state => state.setSession);
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'apple' | null>(null);
+  const googleIosClientId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+  const googleAndroidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+  const googleWebClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const googleClientIdForPlatform = Platform.select({
+    ios: googleIosClientId,
+    android: googleAndroidClientId,
+    default: googleWebClientId,
+  });
   const [googleRequest, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+    iosClientId: googleClientIdForPlatform ? googleIosClientId : 'disabled-google-ios-client-id',
+    androidClientId: googleClientIdForPlatform ? googleAndroidClientId : 'disabled-google-android-client-id',
+    webClientId: googleClientIdForPlatform ? googleWebClientId : 'disabled-google-web-client-id',
     scopes: ['openid', 'profile', 'email'],
   });
 
@@ -88,7 +96,7 @@ export function useSocialLogin() {
   }, [completeSocialLogin, googleResponse]);
 
   const signInWithGoogle = useCallback(async () => {
-    if (!googleRequest) {
+    if (!googleClientIdForPlatform || !googleRequest) {
       Alert.alert(
         'Google login unavailable',
         'Google login is not configured for this build.',
@@ -106,7 +114,7 @@ export function useSocialLogin() {
         getApiMessage(error, 'Please try again.'),
       );
     }
-  }, [googleRequest, promptGoogleAsync]);
+  }, [googleClientIdForPlatform, googleRequest, promptGoogleAsync]);
 
   const signInWithApple = useCallback(async () => {
     if (Platform.OS !== 'ios') {
