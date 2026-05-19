@@ -3,6 +3,8 @@ import {body, validationResult} from 'express-validator';
 import {v4 as uuidv4} from 'uuid';
 import {authMiddleware, AuthRequest} from '../middleware/auth';
 import db from '../db';
+import {rejectInactiveBudget} from '../utils/budgetGuards';
+import {normalizePriorityInput} from '../utils/priority';
 
 const router = Router({mergeParams: true});
 
@@ -45,7 +47,7 @@ function toExpense(row: ExpenseRow) {
 }
 
 async function getBudget(budgetId: string, userId: string) {
-  const result = await db.query('SELECT id FROM budgets WHERE id = $1 AND user_id = $2', [
+  const result = await db.query('SELECT id, status FROM budgets WHERE id = $1 AND user_id = $2', [
     budgetId,
     userId,
   ]);
@@ -87,7 +89,7 @@ router.post(
   body('frequency').optional().isString(),
   dateField('dueDate'),
   body('category').isString().notEmpty(),
-  body('priority').optional().isInt({min: 1}),
+  body('priority').optional().customSanitizer(normalizePriorityInput).isInt({min: 1}),
   body('notes').optional().isString(),
   async (req: AuthRequest, res) => {
     const errors = validationResult(req);
@@ -99,6 +101,9 @@ router.post(
       const budget = await getBudget(req.params.budgetId!, req.userId!);
       if (!budget) {
         return res.status(404).json({success: false, message: 'Budget not found.'});
+      }
+      if (rejectInactiveBudget(res, budget)) {
+        return;
       }
 
       const {
@@ -138,7 +143,7 @@ router.patch(
   body('frequency').optional().isString(),
   optionalDateField('dueDate'),
   body('category').optional().isString(),
-  body('priority').optional().isInt({min: 1}),
+  body('priority').optional().customSanitizer(normalizePriorityInput).isInt({min: 1}),
   body('notes').optional().isString(),
   async (req: AuthRequest, res) => {
     const errors = validationResult(req);
@@ -166,6 +171,9 @@ router.patch(
       const budget = await getBudget(req.params.budgetId!, req.userId!);
       if (!budget) {
         return res.status(404).json({success: false, message: 'Budget not found.'});
+      }
+      if (rejectInactiveBudget(res, budget)) {
+        return;
       }
 
       const expense = await getExpense(req.params.expenseId!, budget.id);
@@ -197,6 +205,9 @@ router.delete('/:expenseId', authMiddleware, async (req: AuthRequest, res) => {
     const budget = await getBudget(req.params.budgetId!, req.userId!);
     if (!budget) {
       return res.status(404).json({success: false, message: 'Budget not found.'});
+    }
+    if (rejectInactiveBudget(res, budget)) {
+      return;
     }
 
     const expense = await getExpense(req.params.expenseId!, budget.id);

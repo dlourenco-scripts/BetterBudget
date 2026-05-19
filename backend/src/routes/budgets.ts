@@ -6,6 +6,7 @@ import db from '../db';
 import incomesRouter from './incomes';
 import expensesRouter from './expenses';
 import debtsRouter from './debts';
+import {inactiveBudgetMessage, isInactiveBudget, rejectInactiveBudget} from '../utils/budgetGuards';
 
 const router = Router();
 
@@ -685,7 +686,7 @@ router.patch(
   body('savingsGoal').optional().isFloat({min: 0}),
   body('goalType').optional().isIn(['save', 'debt']),
   body('autoFillEnabled').optional().isBoolean(),
-  body('status').optional().isString(),
+  body('status').optional().isIn(['active', 'inactive']),
   async (req: AuthRequest, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -713,6 +714,16 @@ router.patch(
       const existing = await getBudgetForUser(req.params.budgetId, req.userId!);
       if (!existing) {
         return res.status(404).json({success: false, message: 'Budget not found.'});
+      }
+      const isStatusOnlyUpdate = updates.length === 1 && updates[0][0] === 'status';
+      if (isInactiveBudget(existing) && !isStatusOnlyUpdate) {
+        return res.status(403).json({success: false, message: inactiveBudgetMessage});
+      }
+      if (req.body.status !== undefined && !isStatusOnlyUpdate) {
+        return res.status(400).json({
+          success: false,
+          message: 'Budget status must be updated separately from budget settings.',
+        });
       }
 
       client = await db.connect();
@@ -812,6 +823,9 @@ router.delete('/:budgetId', authMiddleware, async (req: AuthRequest, res) => {
     if (!budget) {
       return res.status(404).json({success: false, message: 'Budget not found.'});
     }
+    if (rejectInactiveBudget(res, budget)) {
+      return;
+    }
 
     await db.query('DELETE FROM budgets WHERE id = $1', [budget.id]);
     return res.status(204).send();
@@ -839,6 +853,9 @@ router.patch(
       const budget = await getBudgetForUser(req.params.budgetId, req.userId!);
       if (!budget) {
         return res.status(404).json({success: false, message: 'Budget not found.'});
+      }
+      if (rejectInactiveBudget(res, budget)) {
+        return;
       }
 
       const cycleResult = await db.query<CycleRow>(

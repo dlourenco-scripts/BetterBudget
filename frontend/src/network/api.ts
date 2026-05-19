@@ -24,6 +24,43 @@ const callApiPromise = <T = any>(
   });
 };
 
+const normalizeCycleFields = (cycle: any) => {
+  if (!cycle || typeof cycle !== 'object') {
+    return cycle;
+  }
+
+  return {
+    ...cycle,
+    spendableBalance: cycle.spendableBalance ?? cycle.spendableAmount,
+  };
+};
+
+const normalizeBudgetData = (data: any): any => {
+  if (Array.isArray(data)) {
+    return data.map(normalizeBudgetData);
+  }
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+
+  const next = {
+    ...data,
+    currentCycle: normalizeCycleFields(data.currentCycle),
+  };
+  if (Array.isArray(data.cycles)) {
+    next.cycles = data.cycles.map(normalizeCycleFields);
+  }
+  return normalizeCycleFields(next);
+};
+
+const normalizeBudgetResponse = async <T = any>(promise: Promise<ApiResponse<T>>) => {
+  const response = await promise;
+  return {
+    ...response,
+    data: normalizeBudgetData(response.data),
+  } as ApiResponse<T>;
+};
+
 export const authApi = {
   signup: (body: {email: string; password: string; currency?: string}) =>
     callApiPromise(Method.POST, api.auth.signup, body),
@@ -54,18 +91,23 @@ export const userApi = {
 };
 
 export const budgetApi = {
-  list: () => callApiPromise(Method.GET, api.budgets.root),
-  create: (body: any) => callApiPromise(Method.POST, api.budgets.root, body),
+  list: () => normalizeBudgetResponse(callApiPromise(Method.GET, api.budgets.root)),
+  create: (body: any) =>
+    normalizeBudgetResponse(callApiPromise(Method.POST, api.budgets.root, body)),
   get: (budgetId: string) =>
-    callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}`),
+    normalizeBudgetResponse(callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}`)),
   cycles: (budgetId: string) =>
-    callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}/cycles`),
+    normalizeBudgetResponse(callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}/cycles`)),
   currentCycle: (budgetId: string) =>
-    callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}/cycles/current`),
+    normalizeBudgetResponse(
+      callApiPromise(Method.GET, `${api.budgets.root}/${budgetId}/cycles/current`),
+    ),
   updateCycle: (budgetId: string, cycleId: string, body: any) =>
-    callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}/cycles/${cycleId}`, body),
+    normalizeBudgetResponse(
+      callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}/cycles/${cycleId}`, body),
+    ),
   update: (budgetId: string, body: any) =>
-    callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}`, body),
+    normalizeBudgetResponse(callApiPromise(Method.PATCH, `${api.budgets.root}/${budgetId}`, body)),
   delete: (budgetId: string) =>
     callApiPromise(Method.DELETE, `${api.budgets.root}/${budgetId}`),
   createIncome: (budgetId: string, body: any) =>
