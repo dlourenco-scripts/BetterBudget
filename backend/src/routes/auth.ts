@@ -204,13 +204,25 @@ async function verifyAppleIdentityToken(idToken: string): Promise<SocialIdentity
     publicKey,
     new Uint8Array(signature.buffer, signature.byteOffset, signature.byteLength),
   );
+  const tokenIsExpired = Number(payload.exp || 0) * 1000 < Date.now();
+
+  if (process.env.SOCIAL_LOGIN_DEBUG_ERRORS === 'true') {
+    console.log('Apple social login debug:', {
+      audience: payload.aud,
+      allowedAudiences,
+      issuer: payload.iss,
+      hasSub: Boolean(payload.sub),
+      isExpired: tokenIsExpired,
+      signatureIsValid,
+    });
+  }
 
   if (
     !signatureIsValid ||
     payload.iss !== APPLE_ISSUER ||
     !payload.sub ||
     !isAudienceAllowed(payload.aud, allowedAudiences) ||
-    Number(payload.exp || 0) * 1000 < Date.now()
+    tokenIsExpired
   ) {
     throw new Error('Apple sign-in token is not valid for this app.');
   }
