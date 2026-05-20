@@ -559,7 +559,9 @@ router.post(
     } catch (error) {
       console.error('Social login error:', error);
       const message =
-        error instanceof Error && error.message.includes('not configured')
+        error instanceof Error &&
+        (error.message.includes('not configured') ||
+          process.env.SOCIAL_LOGIN_DEBUG_ERRORS === 'true')
           ? error.message
           : 'Social login could not be verified. Please try again.';
       return res.status(401).json({success: false, message});
