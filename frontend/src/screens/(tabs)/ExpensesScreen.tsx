@@ -63,6 +63,34 @@ const formatAmount = (amount: number | string | undefined | null) =>
     maximumFractionDigits: 0,
   });
 
+const formatDetailAmount = (amount: number | string | undefined | null) =>
+  Number(amount || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
+const formatDisplayDate = (dateValue?: string | Date | null) => {
+  if (!dateValue) {
+    return 'Not set';
+  }
+
+  const rawValue = dateValue instanceof Date ? dateValue.toISOString() : String(dateValue).trim();
+  const isoDateMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    const localDate = new Date(Number(year), Number(month) - 1, Number(day));
+    return localDate.toLocaleDateString(undefined, {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+
+  const date = dayjs(rawValue);
+  return date.isValid() ? date.format('MMMM D, YYYY') : rawValue || 'Not set';
+};
+
 const ExpensesScreen = () => {
   const color = useThemeColor();
   const {currencySymbol} = useCurrency();
@@ -78,7 +106,6 @@ const ExpensesScreen = () => {
   const [selectedItem, setSelectedItem] = useState<ExpenseItem | null>(null);
   const [editName, setEditName] = useState('');
   const [editAmount, setEditAmount] = useState('');
-  const [replaceEditAmountOnInput, setReplaceEditAmountOnInput] = useState(false);
   const [editDueDate, setEditDueDate] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [editPaySource, setEditPaySource] = useState('');
@@ -125,10 +152,10 @@ const ExpensesScreen = () => {
             id: expense.id,
             title: expense.name,
             value: Number(expense.amount || 0).toFixed(2),
-            subText: formatOrdinalDay(expense.dueDate),
+            subText: formatOrdinalDay(expense.dueDate || expense.due_date),
             kind: 'expense',
             type: expense.type,
-            dueDate: expense.dueDate,
+            dueDate: expense.dueDate || expense.due_date,
             category: expense.category,
             paySource: expense.notes?.trim() || '',
             frequency: expense.frequency,
@@ -280,7 +307,6 @@ const ExpensesScreen = () => {
 
     setEditName(item.title);
     setEditAmount(String(Math.round(Number(item.value || 0))));
-    setReplaceEditAmountOnInput(true);
     setEditDueDate(item.dueDate || '');
     setEditCategory(item.category || '');
     setEditPaySource(item.paySource || '');
@@ -291,25 +317,6 @@ const ExpensesScreen = () => {
     );
     setExpenseEditPanel('form');
     setIsEditingDetails(true);
-  };
-
-  const handleEditAmountChange = (value: string) => {
-    const cleanedValue = value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
-    if (!replaceEditAmountOnInput) {
-      setEditAmount(cleanedValue);
-      return;
-    }
-
-    setReplaceEditAmountOnInput(false);
-    if (!cleanedValue || cleanedValue.length < editAmount.length) {
-      setEditAmount('');
-      return;
-    }
-
-    const enteredValue = cleanedValue.startsWith(editAmount)
-      ? cleanedValue.slice(editAmount.length)
-      : cleanedValue.slice(-1);
-    setEditAmount(enteredValue.replace(/[^0-9.]/g, ''));
   };
 
   const openEditForItem = (item: ExpenseItem) => {
@@ -365,6 +372,23 @@ const ExpensesScreen = () => {
       Alert.alert('Unable to update', error?.message || 'Please try again.');
     }
   };
+
+  const renderDetailRow = (label: string, value: string, isLast = false) => (
+    <View
+      key={label}
+      style={[
+        styles.detailRow,
+        {borderBottomColor: color.border},
+        isLast && styles.detailRowLast,
+      ]}>
+      <Text size={13} color={color.tabicon} variant="medium" style={styles.detailLabel}>
+        {label}
+      </Text>
+      <Text size={15} color={color.black} variant="medium" style={styles.detailValue}>
+        {value}
+      </Text>
+    </View>
+  );
 
   const renderSelectionCheckbox = (item: ExpenseItem) =>
     isSelectionMode ? (
@@ -430,30 +454,31 @@ const ExpensesScreen = () => {
           onPress={() => {
             if (openSwipeableRef.current) {
               closeOpenSwipeable();
-              return;
             }
-            if (isSelectionMode) {
-              toggleSelection(item.id);
-            }
+            handleCardPress(item);
           }}
           delayLongPress={500}
           hitSlop={4}>
           <View style={styles.expenseTitleWrap}>
-            {!!item.subText && (
-              <Text size={14} color={color.black}>
-                {item.subText}
-              </Text>
-            )}
+            <Text size={14} color={color.black} style={styles.expenseDate}>
+              {item.subText}
+            </Text>
             <Text
               size={15}
               variant="medium"
               color={color.black}
               style={styles.expenseName}
-              numberOfLines={1}>
+              numberOfLines={1}
+              ellipsizeMode="tail">
               {item.title}
             </Text>
           </View>
-          <Text size={15} variant="medium" color={color.black}>
+          <Text
+            size={15}
+            variant="medium"
+            color={color.black}
+            style={styles.expenseAmount}
+            numberOfLines={1}>
             {currencySymbol}
             {Number(item.value || 0).toLocaleString(undefined, {
               minimumFractionDigits: 2,
@@ -707,6 +732,8 @@ const ExpensesScreen = () => {
               : 'Expense Details'
         }
         hideTitleLine={isEditingDetails && expenseEditPanel === 'category' ? false : true}
+        titleSize={20}
+        headerPaddingVertical={14}
         headerLeft={
           isEditingDetails && expenseEditPanel === 'category' ? (
             <TouchableOpacity
@@ -746,43 +773,28 @@ const ExpensesScreen = () => {
             </View>
           ) : null
         }>
-        <Spacer height={heightPixel(20)} />
+        <Spacer height={selectedItem && !isEditingDetails ? heightPixel(8) : heightPixel(20)} />
         {selectedItem && !isEditingDetails && (
-          <View style={{gap: heightPixel(12), marginBottom: heightPixel(35)}}>
-            {[
-              ['Name', selectedItem.title],
-              [
+          <View style={styles.detailContent}>
+            <View style={[styles.detailCard, {borderColor: color.border}]}>
+              {renderDetailRow('Name', selectedItem.title)}
+              {renderDetailRow(
                 selectedItem.kind === 'debt' ? 'Total' : 'Amount',
-                `${currencySymbol}${formatAmount(selectedItem.value)}`,
-              ],
-              ...(selectedItem.kind === 'expense'
-                ? [
-                    ['Due Date', selectedItem.dueDate || selectedItem.subText || 'Not set'],
-                    ['Category', selectedItem.category || 'General'],
-                    ['Pay Source', selectedItem.paySource?.trim() || 'Unassigned'],
-                    ['Fixed / Variable', selectedItem.type || 'Fixed'],
-                  ]
-                : []),
-            ].map(([label, value]) => (
-              <View
-                key={label}
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  gap: widthPixel(12),
-                }}>
-                <Text size={13} color={color.tabicon}>
-                  {label}
-                </Text>
-                <Text
-                  size={14}
-                  color={color.black}
-                  variant="medium"
-                  style={{flex: 1, textAlign: 'right'}}>
-                  {value}
-                </Text>
-              </View>
-            ))}
+                `${currencySymbol}${formatDetailAmount(selectedItem.value)}`,
+                selectedItem.kind === 'debt',
+              )}
+              {selectedItem.kind === 'expense' && (
+                <>
+                  {renderDetailRow(
+                    'Due Date',
+                    formatDisplayDate(selectedItem.dueDate),
+                  )}
+                  {renderDetailRow('Category', selectedItem.category || 'General')}
+                  {renderDetailRow('Pay Source', selectedItem.paySource?.trim() || 'Unassigned')}
+                  {renderDetailRow('Type', selectedItem.type || 'Fixed', true)}
+                </>
+              )}
+            </View>
             <Spacer height={heightPixel(8)} />
             <Button
               title={selectedItem.kind === 'debt' ? 'Edit Debt' : 'Edit Expense'}
@@ -1014,10 +1026,10 @@ const ExpensesScreen = () => {
               keyboardType="numeric"
               useCurrencyIcon={true}
               value={editAmount}
-              selectTextOnFocus={false}
-              onFocus={() => setReplaceEditAmountOnInput(true)}
-              onBlur={() => setReplaceEditAmountOnInput(false)}
-              onChangeText={handleEditAmountChange}
+              replaceOnFirstType
+              onChangeText={value =>
+                setEditAmount(value.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))
+              }
             />
             {selectedItem.kind === 'expense' && (
               <>
@@ -1071,24 +1083,33 @@ const styles = StyleSheet.create({
   },
   expenseTile: {
     flex: 1,
-    minHeight: heightPixel(56),
+    height: heightPixel(56),
     borderRadius: 8,
     borderWidth: 1,
     paddingHorizontal: widthPixel(10),
-    paddingVertical: heightPixel(14),
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    gap: widthPixel(10),
+    gap: widthPixel(12),
   },
   expenseTitleWrap: {
     flex: 1,
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     gap: widthPixel(6),
   },
+  expenseDate: {
+    flexShrink: 0,
+    minWidth: widthPixel(34),
+  },
   expenseName: {
     flex: 1,
+    minWidth: 0,
+  },
+  expenseAmount: {
+    flexShrink: 0,
+    textAlign: 'right',
   },
   expenseActionButton: {
     width: widthPixel(32),
@@ -1101,6 +1122,35 @@ const styles = StyleSheet.create({
     width: '100%',
     height: heightPixel(44),
     marginBottom: heightPixel(10),
+  },
+  detailContent: {
+    gap: heightPixel(12),
+    marginBottom: heightPixel(30),
+  },
+  detailCard: {
+    borderWidth: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: widthPixel(14),
+    borderBottomWidth: 1,
+    paddingVertical: heightPixel(11),
+    paddingHorizontal: widthPixel(12),
+  },
+  detailRowLast: {
+    borderBottomWidth: 0,
+  },
+  detailLabel: {
+    width: widthPixel(86),
+    flexShrink: 0,
+  },
+  detailValue: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
   },
   categoryGrid: {
     flexDirection: 'row',

@@ -740,6 +740,7 @@ const SimulatedBudget = () => {
               value={expenseDraft.amount}
               keyboardType="decimal-pad"
               useCurrencyIcon
+              replaceOnFirstType
               onChangeText={amount =>
                 setExpenseDraft(previous => ({
                   ...previous,
@@ -1014,6 +1015,7 @@ const SimulatedBudget = () => {
             value={incomeDraft}
             keyboardType="decimal-pad"
             useCurrencyIcon
+            replaceOnFirstType
             onChangeText={amount =>
               setIncomeDraft(amount.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'))
             }

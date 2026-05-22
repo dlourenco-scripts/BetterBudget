@@ -76,6 +76,7 @@ const CreateBudget = () => {
         }}
         keyboardType="numeric"
         useCurrencyIcon={true}
+        replaceOnFirstType
         placeholder="0"
         value={reserveAmount}
         onChangeText={setReserveAmount}
@@ -95,6 +96,7 @@ const CreateBudget = () => {
         }}
         keyboardType="numeric"
         useCurrencyIcon={true}
+        replaceOnFirstType
         placeholder="0"
         value={currentSavings}
         onChangeText={setCurrentSavings}

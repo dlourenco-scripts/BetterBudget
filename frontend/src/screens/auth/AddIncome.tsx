@@ -91,6 +91,9 @@ const AddIncome = () => {
   const [showFrequencySheet, setShowFrequencySheet] = useState(false);
   const [incomeSourceText, setIncomeSourceText] = useState('');
   const [incomeAmount, setIncomeAmount] = useState('');
+  const [draftBudgetId, setDraftBudgetId] = useState(budgetId || '');
+  const [draftIncomeId, setDraftIncomeId] = useState('');
+  const [draftItemsCopied, setDraftItemsCopied] = useState(false);
   const [ShowIncomeSheet, setShowIncomeSheet] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [showIncomeSourceInfo, setShowIncomeSourceInfo] = useState(false);
@@ -178,20 +181,23 @@ const AddIncome = () => {
   }) => {
     setSaving(true);
     try {
-      let targetBudgetId = budgetId;
+      let targetBudgetId = budgetId || draftBudgetId;
+      const budgetPayload = {
+        name: budgetName || 'Home Budget',
+        netPay: Number(values.incomeAmount),
+        cycleType: selectedFrequency,
+        cycleStart: values.selectedDate,
+        cycleEnd: getCycleEnd(values.selectedDate, selectedFrequency),
+        reserveAmount: Number(reserveAmount || 0),
+        currentSavings: Number(currentSavings || 0),
+        goalType: userGoalType === 'debt' ? 'debt' : 'save',
+        autoFillEnabled: isEnabled,
+      };
 
       if (isCreatingBudget) {
-        const response = await budgetApi.create({
-          name: budgetName || 'Home Budget',
-          netPay: Number(values.incomeAmount),
-          cycleType: selectedFrequency,
-          cycleStart: values.selectedDate,
-          cycleEnd: getCycleEnd(values.selectedDate, selectedFrequency),
-          reserveAmount: Number(reserveAmount || 0),
-          currentSavings: Number(currentSavings || 0),
-          goalType: userGoalType === 'debt' ? 'debt' : 'save',
-          autoFillEnabled: isEnabled,
-        });
+        const response = targetBudgetId
+          ? await budgetApi.update(targetBudgetId, budgetPayload)
+          : await budgetApi.create(budgetPayload);
 
         if (!response.success || !response.data?.id) {
           Alert.alert('Unable to save budget', response.message || 'Please try again.');
@@ -199,6 +205,7 @@ const AddIncome = () => {
         }
 
         targetBudgetId = response.data.id;
+        setDraftBudgetId(response.data.id);
       }
 
       if (!targetBudgetId) {
@@ -213,7 +220,7 @@ const AddIncome = () => {
             ? 'manual_additional_income_pending'
             : 'auto_add_enabled'
           : '';
-      const incomeResponse = await budgetApi.createIncome(targetBudgetId, {
+      const incomePayload = {
         name: values.incomeSourceText,
         amount: Number(values.incomeAmount),
         type: selectedIncomeType,
@@ -222,19 +229,39 @@ const AddIncome = () => {
         category: values.incomeSourceText,
         notes: additionalIncomeNotes,
         isPrimary: isCreatingBudget,
-      });
+      };
+      let targetDraftIncomeId = draftIncomeId;
+      if (isCreatingBudget && targetBudgetId && !targetDraftIncomeId) {
+        const draftBudgetResponse = await budgetApi.get(targetBudgetId);
+        const primaryIncome = draftBudgetResponse.data?.incomes?.find(
+          (income: any) => income.isPrimary,
+        );
+        if (primaryIncome?.id) {
+          targetDraftIncomeId = primaryIncome.id;
+          setDraftIncomeId(primaryIncome.id);
+        }
+      }
+      const incomeResponse =
+        isCreatingBudget && targetDraftIncomeId
+          ? await budgetApi.updateIncome(targetBudgetId, targetDraftIncomeId, incomePayload)
+          : await budgetApi.createIncome(targetBudgetId, incomePayload);
 
       if (!incomeResponse.success) {
         Alert.alert('Unable to save income', incomeResponse.message || 'Please try again.');
         return;
       }
+      if (isCreatingBudget && incomeResponse.data?.id) {
+        setDraftIncomeId(incomeResponse.data.id);
+      }
 
       if (
         fromCopyExpenses === 'true' &&
         sourceBudgetId &&
-        sourceBudgetId !== targetBudgetId
+        sourceBudgetId !== targetBudgetId &&
+        !draftItemsCopied
       ) {
         await copyBudgetItems(sourceBudgetId, targetBudgetId);
+        setDraftItemsCopied(true);
         router.navigate({
           pathname: '/(tabs)/HomeScreen',
           params: {selectedBudgetId: targetBudgetId},
@@ -477,6 +504,7 @@ const AddIncome = () => {
               touched={touched.incomeAmount}
               keyboardType="numeric"
               useCurrencyIcon={true}
+              replaceOnFirstType
               inputContainerStyle={{
                 backgroundColor: color.inputField,
               }}
@@ -538,7 +566,9 @@ const AddIncome = () => {
               title={
                 isEditMode
                   ? 'Update'
-                  : fromHome && !isCreatingBudget
+                  : isCreatingBudget
+                    ? 'Next'
+                    : fromHome && !isCreatingBudget
                     ? 'Update'
                     : 'Add'
               }

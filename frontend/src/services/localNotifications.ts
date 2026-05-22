@@ -14,6 +14,37 @@ Notifications.setNotificationHandler({
 const scheduledReminderKey = (id: string) =>
   `betterbudget.localNotification.${id}`;
 
+type ScheduledReminderRecord = {
+  notificationId: string;
+  reminderAt: string;
+};
+
+const PAYDAY_REMINDER_MESSAGE =
+  'It’s payday! Time to check your budget and plan ahead.';
+
+const readScheduledReminderRecord = async (
+  storageKey: string,
+): Promise<ScheduledReminderRecord | null> => {
+  const rawRecord = await AsyncStorage.getItem(storageKey);
+  if (!rawRecord) {
+    return null;
+  }
+
+  try {
+    const parsedRecord = JSON.parse(rawRecord);
+    if (parsedRecord?.notificationId) {
+      return parsedRecord;
+    }
+  } catch {
+    return {
+      notificationId: rawRecord,
+      reminderAt: '',
+    };
+  }
+
+  return null;
+};
+
 async function ensureNotificationPermission() {
   const existing = await Notifications.getPermissionsAsync();
   if (existing.granted) {
@@ -33,9 +64,15 @@ export async function schedulePaydayLocalNotification(
   }
 
   const storageKey = scheduledReminderKey(id);
-  const existingNotificationId = await AsyncStorage.getItem(storageKey);
-  if (existingNotificationId) {
+  const reminderAt = reminderDate.toISOString();
+  const existingRecord = await readScheduledReminderRecord(storageKey);
+  if (existingRecord?.notificationId && existingRecord.reminderAt === reminderAt) {
     return;
+  }
+
+  if (existingRecord?.notificationId) {
+    await Notifications.cancelScheduledNotificationAsync(existingRecord.notificationId);
+    await AsyncStorage.removeItem(storageKey);
   }
 
   const hasPermission = await ensureNotificationPermission();
@@ -53,11 +90,30 @@ export async function schedulePaydayLocalNotification(
   const notificationId = await Notifications.scheduleNotificationAsync({
     content: {
       title: 'Payday reminder',
-      body: "It's payday! Time to check your budget and plan ahead.",
+      body: PAYDAY_REMINDER_MESSAGE,
       data: {type: 'payday_reminder', reminderId: id},
     },
     trigger: reminderDate.getTime() <= Date.now() ? null : (reminderDate as any),
   });
 
-  await AsyncStorage.setItem(storageKey, notificationId);
+  await AsyncStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      notificationId,
+      reminderAt,
+    }),
+  );
+}
+
+export async function cancelPaydayLocalNotification(id: string) {
+  if (!id) {
+    return;
+  }
+
+  const storageKey = scheduledReminderKey(id);
+  const existingRecord = await readScheduledReminderRecord(storageKey);
+  if (existingRecord?.notificationId) {
+    await Notifications.cancelScheduledNotificationAsync(existingRecord.notificationId);
+  }
+  await AsyncStorage.removeItem(storageKey);
 }

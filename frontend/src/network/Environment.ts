@@ -48,4 +48,7 @@ export const api = {
   budgets: {
     root: '/budgets',
   },
+  support: {
+    root: '/support',
+  },
 };

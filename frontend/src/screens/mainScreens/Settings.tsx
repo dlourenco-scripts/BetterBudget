@@ -90,7 +90,7 @@ const Settings = () => {
     {
       id: '5',
       title: 'Default Pay Source',
-      image: appImages.DefaultPay,
+      image: appImages.Walletimg,
       onPress: () => router.navigate('/mainScreens/PaySource'),
     },
     {
@@ -107,12 +107,18 @@ const Settings = () => {
     },
     {
       id: '8',
+      title: 'Support & Feedback',
+      image: appImages.Aboutimg,
+      onPress: () => router.navigate('/mainScreens/SupportFeedback'),
+    },
+    {
+      id: '9',
       title: 'Invite Friends',
       image: appImages.InviteFriends,
       onPress: () => {},
     },
     {
-      id: '9',
+      id: '10',
       title: 'Logout',
       image: appImages.Logout,
       onPress: () => {
@@ -137,7 +143,7 @@ const Settings = () => {
         gap: widthPixel(12),
         borderRadius: 12,
         backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
-        paddingVertical: heightPixel(21),
+        paddingVertical: heightPixel(18),
         paddingHorizontal: widthPixel(16),
         shadowColor: color.bg === '#121212' ? '#000000' : color.border,
         shadowOffset: {
@@ -156,6 +162,7 @@ const Settings = () => {
           height: heightPixel(26),
           width: widthPixel(26),
           resizeMode: 'contain',
+          tintColor: item.id === '5' ? color.primary : undefined,
         }}
       />
       <Text
@@ -191,12 +198,12 @@ const Settings = () => {
         }}
         canGoBack={true}
       />
-      <Spacer height={heightPixel(20)} />
+      <Spacer height={heightPixel(16)} />
       <FlatList
         data={profileOptions}
         renderItem={renderSettingItem}
         keyExtractor={item => item.id}
-        ItemSeparatorComponent={() => <Spacer height={heightPixel(10)} />}
+        ItemSeparatorComponent={() => <Spacer height={heightPixel(8)} />}
         // contentContainerStyle={{
         //   paddingBottom: heightPixel(20),
         // }}

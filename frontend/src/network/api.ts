@@ -90,6 +90,11 @@ export const userApi = {
   update: (body: any) => callApiPromise(Method.PATCH, api.users.me, body),
 };
 
+export const supportApi = {
+  create: (body: {message: string}) =>
+    callApiPromise(Method.POST, api.support.root, body),
+};
+
 export const budgetApi = {
   list: () => normalizeBudgetResponse(callApiPromise(Method.GET, api.budgets.root)),
   create: (body: any) =>

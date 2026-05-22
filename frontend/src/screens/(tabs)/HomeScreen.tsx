@@ -37,7 +37,10 @@ import {useNotifications} from '@/context/NotificationProvider';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {budgetApi} from '@/network/api';
-import {schedulePaydayLocalNotification} from '@/services/localNotifications';
+import {
+  cancelPaydayLocalNotification,
+  schedulePaydayLocalNotification,
+} from '@/services/localNotifications';
 import {fontPixel, heightPixel, widthPixel, wp} from '@/services/responsive';
 import {useAuthStore} from '@/store';
 
@@ -59,6 +62,28 @@ const formatOrdinalDay = (dateValue?: string) => {
             ? 'rd'
             : 'th';
   return `${day}${suffix}`;
+};
+
+const formatDisplayDate = (dateValue?: string | Date | null) => {
+  if (!dateValue) {
+    return 'Not set';
+  }
+
+  const rawValue = dateValue instanceof Date ? dateValue.toISOString() : String(dateValue).trim();
+  const isoDateMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    const localDate = new Date(Number(year), Number(month) - 1, Number(day));
+    return localDate.toLocaleDateString(undefined, {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+
+  const date = dayjs(rawValue);
+  return date.isValid() ? date.format('MMMM D, YYYY') : rawValue || 'Not set';
 };
 
 const getAdditionalIncomePayDate = (income: any, referenceDateValue?: string | dayjs.Dayjs) => {
@@ -729,7 +754,6 @@ const HomeScreen = () => {
 
   useEffect(() => {
     if (
-      !userData?.paydayReminderEnabled ||
       !activeCycle?.cycleStart ||
       isPastCycle
     ) {
@@ -744,6 +768,13 @@ const HomeScreen = () => {
       .second(0)
       .millisecond(0);
     const reminderId = `${activeBudgetId}-${activeCycle.id}`;
+
+    if (!userData?.paydayReminderEnabled) {
+      cancelPaydayLocalNotification(reminderId).catch(error => {
+        console.error('Unable to cancel payday reminder:', error);
+      });
+      return;
+    }
 
     schedulePaydayLocalNotification(
       reminderId,
@@ -760,7 +791,7 @@ const HomeScreen = () => {
       type: 'payday_reminder',
       dedupeKey: `payday-reminder-${reminderId}`,
       title: 'Payday reminder',
-      message: "It's payday! Time to check your budget and plan ahead.",
+      message: 'It’s payday! Time to check your budget and plan ahead.',
       payload: {
         budgetId: activeBudgetId,
         cycleId: activeCycle.id,
@@ -1890,6 +1921,9 @@ const HomeScreen = () => {
   const [oneTimeNewPaySource, setOneTimeNewPaySource] = useState('');
   const [carryOverAmount, setCarryOverAmount] = useState('');
   const [toSaveInputAmount, setToSaveInputAmount] = useState('');
+  const [currentSavingsEditOpenKey, setCurrentSavingsEditOpenKey] = useState(0);
+  const [savingsGoalEditOpenKey, setSavingsGoalEditOpenKey] = useState(0);
+  const [incomeEditOpenKey, setIncomeEditOpenKey] = useState(0);
   const [selectedExpense, setSelectedExpense] = useState<any | null>(null);
   const [showExpenseDetails, setShowExpenseDetails] = useState(false);
   const [isEditingExpenseDetails, setIsEditingExpenseDetails] = useState(false);
@@ -2560,6 +2594,9 @@ const HomeScreen = () => {
             onSavingsUpdate={handleSavingsUpdate}
             onIncomeUpdate={handleIncomeUpdate}
             onAddFromSavings={handleAddFromSavings}
+            currentSavingsEditOpenKey={currentSavingsEditOpenKey}
+            savingsGoalEditOpenKey={savingsGoalEditOpenKey}
+            incomeEditOpenKey={incomeEditOpenKey}
           />
           <Spacer
             height={20}
@@ -2581,23 +2618,69 @@ const HomeScreen = () => {
               },
             ]}>
             <View style={styles.savingsOverviewTopRow}>
-              <View style={styles.savingsOverviewMetric}>
+              <TouchableOpacity
+                activeOpacity={0.82}
+                disabled={isPastCycle}
+                onPress={() => setCurrentSavingsEditOpenKey(previous => previous + 1)}
+                style={[
+                  styles.savingsOverviewMetric,
+                  styles.currentSavingsMetricTouchable,
+                  isPastCycle && styles.disabledSummaryMetric,
+                ]}>
                 <Text size={11} color={color.tabicon} numberOfLines={1}>
                   Current Savings
                 </Text>
-                <Text size={20} variant="semibold" color={color.black} numberOfLines={1}>
-                  {formatWholeCurrency(totalSavings)}
-                </Text>
-              </View>
+                <View style={styles.currentSavingsValueRow}>
+                  <Text
+                    size={20}
+                    variant="semibold"
+                    color={color.black}
+                    numberOfLines={1}
+                    style={styles.currentSavingsAmountText}>
+                    {formatWholeCurrency(totalSavings)}
+                  </Text>
+                  {!isPastCycle && (
+                    <Feather
+                      name="chevron-right"
+                      size={17}
+                      color={color.tabicon}
+                      style={styles.currentSavingsChevron}
+                    />
+                  )}
+                </View>
+              </TouchableOpacity>
               <View style={[styles.savingsOverviewDivider, {backgroundColor: color.primary}]} />
-              <View style={styles.savingsOverviewMetric}>
+              <TouchableOpacity
+                activeOpacity={0.82}
+                disabled={isPastCycle}
+                onPress={() => setSavingsGoalEditOpenKey(previous => previous + 1)}
+                style={[
+                  styles.savingsOverviewMetric,
+                  styles.currentSavingsMetricTouchable,
+                  isPastCycle && styles.disabledSummaryMetric,
+                ]}>
                 <Text size={11} color={color.tabicon} numberOfLines={1}>
                   Savings Goal
                 </Text>
-                <Text size={20} variant="semibold" color={color.black} numberOfLines={1}>
-                  {formatWholeCurrency(savingsGoal)}
-                </Text>
-              </View>
+                <View style={styles.currentSavingsValueRow}>
+                  <Text
+                    size={20}
+                    variant="semibold"
+                    color={color.black}
+                    numberOfLines={1}
+                    style={styles.currentSavingsAmountText}>
+                    {formatWholeCurrency(savingsGoal)}
+                  </Text>
+                  {!isPastCycle && (
+                    <Feather
+                      name="chevron-right"
+                      size={17}
+                      color={color.tabicon}
+                      style={styles.currentSavingsChevron}
+                    />
+                  )}
+                </View>
+              </TouchableOpacity>
             </View>
 
             <Spacer height={heightPixel(10)} />
@@ -2707,14 +2790,9 @@ const HomeScreen = () => {
                 },
               ]}>
               <TouchableOpacity
-                activeOpacity={hasAdditionalIncome ? 0.85 : 1}
-                disabled={!hasAdditionalIncome}
-                onPress={() =>
-                  setAdditionalIncomeExpandedByView(previous => ({
-                    ...previous,
-                    [additionalIncomeExpansionKey]: !previous[additionalIncomeExpansionKey],
-                  }))
-                }
+                activeOpacity={0.82}
+                disabled={isPastCycle}
+                onPress={() => setIncomeEditOpenKey(previous => previous + 1)}
                 style={styles.incomePanelHeader}>
                 <Text size={20} color={color.black} variant="semibold">
                   Income
@@ -2723,12 +2801,8 @@ const HomeScreen = () => {
                   <Text size={18} color={color.black} variant="medium">
                     {formatWholeCurrency(totalIncome)}
                   </Text>
-                  {hasAdditionalIncome && (
-                    <Feather
-                      name={isIncomeExpanded ? 'chevron-up' : 'chevron-down'}
-                      size={20}
-                      color={color.black}
-                    />
+                  {!isPastCycle && (
+                    <Feather name="chevron-right" size={18} color={color.tabicon} />
                   )}
                 </View>
               </TouchableOpacity>
@@ -3287,6 +3361,7 @@ const HomeScreen = () => {
             value={editAdditionalIncomeAmount}
             keyboardType="decimal-pad"
             useCurrencyIcon
+            replaceOnFirstType
             onChangeText={amount =>
               setEditAdditionalIncomeAmount(
                 amount.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1'),
@@ -3368,11 +3443,12 @@ const HomeScreen = () => {
         visible={showDeleteModal}
         onClose={handleDeleteCancel}
         title="Delete Budget"
-        message="Are you sure you want to delete the budget. You will not be able to restore the deleted budget again"
+        message="This budget and its data cannot be restored."
         primaryButtonText="Cancel"
         secondaryButtonText="Delete"
         onPrimaryPress={handleDeleteCancel}
         onSecondaryPress={handleDeleteConfirm}
+        secondaryButtonVariant="destructive"
       />
 
       {/* Add New Budget / Copy Expenses Modal */}
@@ -3437,6 +3513,7 @@ const HomeScreen = () => {
             }
             keyboardType="decimal-pad"
             useCurrencyIcon
+            replaceOnFirstType
             inputContainerStyle={{
               backgroundColor: isDarkMode ? '#0F1115' : color.bg,
             }}
@@ -3521,6 +3598,7 @@ const HomeScreen = () => {
               }
               keyboardType="numeric"
               useCurrencyIcon={true}
+              replaceOnFirstType
             />
             <Spacer height={heightPixel(12)} />
             <TextInput
@@ -3657,6 +3735,7 @@ const HomeScreen = () => {
           keyboardType="numeric"
           useCurrencyIcon={true}
           value={toSaveInputAmount}
+          replaceOnFirstType
           onChangeText={setToSaveInputAmount}
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
@@ -3676,6 +3755,8 @@ const HomeScreen = () => {
         }}
         title="Expense Details"
         hideTitleLine={true}
+        titleSize={20}
+        headerPaddingVertical={14}
         backgroundColor={color.inputField}
         footer={
           selectedExpense && isEditingExpenseDetails ? (
@@ -3695,32 +3776,26 @@ const HomeScreen = () => {
             </View>
           ) : null
         }>
-        <Spacer height={heightPixel(20)} />
+        <Spacer height={selectedExpense && !isEditingExpenseDetails ? heightPixel(8) : heightPixel(20)} />
         {selectedExpense && !isEditingExpenseDetails && (
-          <View style={{gap: heightPixel(12), marginBottom: heightPixel(35)}}>
+          <View style={styles.detailContent}>
             {[
               ['Name', selectedExpense.name],
               ['Amount', formatWholeCurrency(selectedExpense.amount)],
-              ['Due Date', selectedExpense.dueDate || 'Not set'],
+              ['Due Date', formatDisplayDate(selectedExpense.dueDate || selectedExpense.due_date)],
               ['Category', selectedExpense.category || 'General'],
               ['Pay Source', selectedExpense.notes?.trim() || 'Unassigned'],
-              ['Fixed / Variable', selectedExpense.type || 'Fixed'],
+              ['Type', selectedExpense.type || 'Fixed'],
             ].map(([label, value]) => (
-              <View
-                key={label}
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  gap: widthPixel(12),
-                }}>
-                <Text size={13} color={color.tabicon}>
+              <View key={label} style={styles.detailRow}>
+                <Text size={13} color={color.tabicon} style={styles.detailLabel}>
                   {label}
                 </Text>
                 <Text
                   size={14}
                   color={color.black}
                   variant="medium"
-                  style={{flex: 1, textAlign: 'right'}}>
+                  style={styles.detailValue}>
                   {value}
                 </Text>
               </View>
@@ -4051,6 +4126,7 @@ const HomeScreen = () => {
           keyboardType="numeric"
           useCurrencyIcon={true}
           value={carryOverAmount}
+          replaceOnFirstType
           onChangeText={setCarryOverAmount}
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
@@ -4114,6 +4190,26 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     gap: heightPixel(4),
+  },
+  currentSavingsMetricTouchable: {
+    borderRadius: 8,
+    paddingVertical: heightPixel(4),
+    paddingHorizontal: widthPixel(4),
+    marginVertical: -heightPixel(4),
+    marginHorizontal: -widthPixel(4),
+  },
+  currentSavingsValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: widthPixel(8),
+  },
+  currentSavingsAmountText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  currentSavingsChevron: {
+    opacity: 0.65,
   },
   savingsOverviewDivider: {
     width: 1.5,
@@ -4483,6 +4579,24 @@ const styles = StyleSheet.create({
     width: '100%',
     height: heightPixel(44),
     marginBottom: heightPixel(10),
+  },
+  detailContent: {
+    gap: heightPixel(10),
+    marginBottom: heightPixel(30),
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: widthPixel(14),
+  },
+  detailLabel: {
+    width: widthPixel(92),
+    flexShrink: 0,
+  },
+  detailValue: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
   },
   categoryGrid: {
     flexDirection: 'row',

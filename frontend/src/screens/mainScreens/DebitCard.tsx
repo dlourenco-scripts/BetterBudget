@@ -10,7 +10,7 @@ import {expenseCategoryGroups} from '@/constants/expenseCategories';
 import {useCurrency} from '@/context/CurrencyProvider';
 import {useThemeColor} from '@/hooks/useThemeColor';
 import {budgetApi} from '@/network/api';
-import {fontPixel, heightPixel} from '@/services/responsive';
+import {fontPixel, heightPixel, widthPixel} from '@/services/responsive';
 
 const formatOrdinalDay = (dateValue?: string) => {
   const date = dayjs(dateValue);
@@ -47,6 +47,28 @@ const formatAmount = (amount: number | string | undefined | null) =>
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+
+const formatDisplayDate = (dateValue?: string | Date | null) => {
+  if (!dateValue) {
+    return 'Not set';
+  }
+
+  const rawValue = dateValue instanceof Date ? dateValue.toISOString() : String(dateValue).trim();
+  const isoDateMatch = rawValue.match(/^(\d{4})-(\d{2})-(\d{2})/);
+
+  if (isoDateMatch) {
+    const [, year, month, day] = isoDateMatch;
+    const localDate = new Date(Number(year), Number(month) - 1, Number(day));
+    return localDate.toLocaleDateString(undefined, {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  }
+
+  const date = dayjs(rawValue);
+  return date.isValid() ? date.format('MMMM D, YYYY') : rawValue || 'Not set';
+};
 
 const DebitCard = () => {
   const color = useThemeColor();
@@ -254,24 +276,28 @@ const DebitCard = () => {
         }}
         title="Expense Details"
         hideTitleLine={true}
+        titleSize={20}
+        headerPaddingVertical={14}
         backgroundColor={color.inputField}>
-        <Spacer height={heightPixel(20)} />
+        <Spacer height={selectedExpense && !isEditingDetails ? heightPixel(8) : heightPixel(20)} />
         {selectedExpense && !isEditingDetails && (
-          <View style={{gap: heightPixel(12), marginBottom: heightPixel(35)}}>
+          <View style={styles.detailContent}>
             {[
               ['Name', selectedExpense.name],
               ['Amount', `${currencySymbol}${formatAmount(selectedExpense.amount)}`],
-              ['Due Date', selectedExpense.dueDate || 'Not set'],
+              ['Due Date', formatDisplayDate(selectedExpense.dueDate || (selectedExpense as any).due_date)],
               ['Category', (selectedExpense as any).category || 'General'],
-              ['Fixed / Variable', selectedExpense.type || 'Fixed'],
+              ['Type', selectedExpense.type || 'Fixed'],
             ].map(([label, value]) => (
-              <View
-                key={label}
-                style={{flexDirection: 'row', justifyContent: 'space-between', gap: 12}}>
-                <Text size={13} color={color.tabicon}>
+              <View key={label} style={styles.detailRow}>
+                <Text size={13} color={color.tabicon} style={styles.detailLabel}>
                   {label}
                 </Text>
-                <Text size={14} color={color.black} variant="medium" style={{flex: 1, textAlign: 'right'}}>
+                <Text
+                  size={14}
+                  color={color.black}
+                  variant="medium"
+                  style={styles.detailValue}>
                   {value}
                 </Text>
               </View>
@@ -290,7 +316,15 @@ const DebitCard = () => {
         {selectedExpense && isEditingDetails && (
           <View style={{gap: heightPixel(14), marginBottom: heightPixel(35)}}>
             <TextInput title="Name" placeholder="Expense Name" value={editName} onChangeText={setEditName} />
-            <TextInput title="Amount" placeholder="0" keyboardType="numeric" useCurrencyIcon={true} value={editAmount} onChangeText={setEditAmount} />
+            <TextInput
+              title="Amount"
+              placeholder="0"
+              keyboardType="numeric"
+              useCurrencyIcon={true}
+              replaceOnFirstType
+              value={editAmount}
+              onChangeText={setEditAmount}
+            />
             <TextInput
               title="Due Date"
               placeholder="YYYY-MM-DD"
@@ -422,6 +456,24 @@ const styles = StyleSheet.create({
     width: '100%',
     height: heightPixel(44),
     marginBottom: heightPixel(10),
+  },
+  detailContent: {
+    gap: heightPixel(10),
+    marginBottom: heightPixel(30),
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: widthPixel(14),
+  },
+  detailLabel: {
+    width: widthPixel(92),
+    flexShrink: 0,
+  },
+  detailValue: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
   },
   categoryGrid: {
     flexDirection: 'row',

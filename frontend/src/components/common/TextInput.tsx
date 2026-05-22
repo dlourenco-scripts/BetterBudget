@@ -76,14 +76,36 @@ const getFirstTypedAmountText = (previousText: string, nextText: string) => {
     return next;
   }
 
-  if (previous && next.startsWith(previous)) {
-    return next.slice(previous.length);
+  if (next.length < previous.length) {
+    return next;
   }
 
-  const previousDigits = previous.replace(/\D/g, '');
-  const nextDigits = next.replace(/\D/g, '');
-  if (previousDigits && nextDigits.startsWith(previousDigits)) {
-    return nextDigits.slice(previousDigits.length);
+  let prefixLength = 0;
+  while (
+    prefixLength < previous.length &&
+    prefixLength < next.length &&
+    previous[prefixLength] === next[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < previous.length - prefixLength &&
+    suffixLength < next.length - prefixLength &&
+    previous[previous.length - 1 - suffixLength] ===
+      next[next.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  const insertedText = next.slice(
+    prefixLength,
+    suffixLength > 0 ? next.length - suffixLength : next.length,
+  );
+
+  if (insertedText) {
+    return insertedText;
   }
 
   return next;

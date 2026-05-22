@@ -32,6 +32,7 @@ const UpdateSavingGoals = () => {
         placeholder={'enter your savings goal'}
         keyboardType="numeric"
         useCurrencyIcon={true}
+        replaceOnFirstType
         inputContainerStyle={{
           backgroundColor: color.white,
         }}

@@ -209,6 +209,7 @@ const CreateProfle = () => {
           placeholderTextColor={color.placeholdertext}
           keyboardType="numeric"
           useCurrencyIcon={true}
+          replaceOnFirstType
           value={savingsGoal}
           onChangeText={setSavingsGoal}
           error="Savings goal is required"

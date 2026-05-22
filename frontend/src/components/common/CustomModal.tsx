@@ -22,6 +22,7 @@ interface CustomModalProps {
   secondaryButtonText: string;
   onPrimaryPress: () => void;
   onSecondaryPress: () => void;
+  secondaryButtonVariant?: 'default' | 'destructive';
 }
 
 const CustomModal: React.FC<CustomModalProps> = ({
@@ -33,10 +34,12 @@ const CustomModal: React.FC<CustomModalProps> = ({
   onSecondaryPress,
   primaryButtonText,
   secondaryButtonText,
+  secondaryButtonVariant = 'default',
 }) => {
   const color = useThemeColor();
   const isDarkMode = useColorScheme() === 'dark';
   console.log(isDarkMode);
+  const isDestructiveSecondary = secondaryButtonVariant === 'destructive';
 
   return (
     <Modal
@@ -73,8 +76,14 @@ const CustomModal: React.FC<CustomModalProps> = ({
           <View style={styles.buttonContainer}>
             <TouchableOpacity
               style={{
-                backgroundColor: color.tabBackground,
-                paddingVertical: heightPixel(15),
+                backgroundColor: isDestructiveSecondary
+                  ? 'rgba(120, 24, 24, 0.24)'
+                  : color.tabBackground,
+                borderWidth: isDestructiveSecondary ? 1 : 0,
+                borderColor: isDestructiveSecondary
+                  ? 'rgba(255, 98, 98, 0.95)'
+                  : 'transparent',
+                paddingVertical: heightPixel(17),
                 paddingHorizontal: widthPixel(20),
                 borderRadius: heightPixel(30),
                 flex: 1,
@@ -83,7 +92,13 @@ const CustomModal: React.FC<CustomModalProps> = ({
               <Text
                 size={12}
                 variant="medium"
-                color={isDarkMode ? color.white : color.black}
+                color={
+                  isDestructiveSecondary
+                    ? '#FF7A7A'
+                    : isDarkMode
+                      ? color.white
+                      : color.black
+                }
                 style={{textAlign: 'center'}}>
                 {secondaryButtonText}
               </Text>
@@ -91,7 +106,7 @@ const CustomModal: React.FC<CustomModalProps> = ({
             <TouchableOpacity
               style={{
                 backgroundColor: color.primary,
-                paddingVertical: heightPixel(15),
+                paddingVertical: heightPixel(17),
                 paddingHorizontal: widthPixel(20),
                 borderRadius: heightPixel(30),
                 flex: 1,
@@ -127,7 +142,7 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     flexDirection: 'row',
-    gap: widthPixel(12),
+    gap: widthPixel(18),
   },
   button: {
     flex: 1,

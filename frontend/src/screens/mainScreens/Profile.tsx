@@ -1,6 +1,8 @@
-import React, {useCallback, useState} from 'react';
+import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
+  Animated,
   Image,
+  Keyboard,
   Modal,
   Platform,
   Switch,
@@ -20,6 +22,7 @@ import {
   UnlockFeaturesModal,
   Wrapper,
 } from '@/components';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import {appImages} from '@/constants/assets';
 import {useColorScheme} from '@/hooks/useColorScheme';
 import {useThemeColor} from '@/hooks/useThemeColor';
@@ -34,6 +37,66 @@ import {
 } from '@/services/responsive';
 import {useAuthStore} from '@/store';
 
+const AmountDoneAction = ({
+  active,
+  color,
+  onPressIn,
+  onPress,
+}: {
+  active: boolean;
+  color: string;
+  onPressIn: () => void;
+  onPress: () => void;
+}) => {
+  const [mounted, setMounted] = useState(active);
+  const opacity = useRef(new Animated.Value(active ? 1 : 0)).current;
+
+  useEffect(() => {
+    if (active) {
+      setMounted(true);
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: 140,
+        useNativeDriver: true,
+      }).start();
+      return;
+    }
+
+    Animated.timing(opacity, {
+      toValue: 0,
+      duration: 120,
+      useNativeDriver: true,
+    }).start(({finished}) => {
+      if (finished) {
+        setMounted(false);
+      }
+    });
+  }, [active, opacity]);
+
+  if (!mounted) {
+    return null;
+  }
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.75}
+      disabled={!active}
+      onPressIn={onPressIn}
+      onPress={onPress}>
+      <Animated.Text
+        style={{
+          color,
+          opacity,
+          fontSize: fontPixel(12),
+          fontFamily: 'medium',
+          marginRight: widthPixel(14),
+        }}>
+        Done
+      </Animated.Text>
+    </TouchableOpacity>
+  );
+};
+
 const Profile = () => {
   const color = useThemeColor();
   const [isFullAccess, setIsFullAccess] = useState(false);
@@ -45,10 +108,12 @@ const Profile = () => {
   const [email, setEmail] = useState('');
   const [profileImage, setProfileImage] = useState('');
   const [savingsGoal, setSavingsGoal] = useState('');
-  const [draftSavingsGoal, setDraftSavingsGoal] = useState('');
+  const [savedSavingsGoal, setSavedSavingsGoal] = useState('');
   const [primaryBudgetId, setPrimaryBudgetId] = useState('');
   const [reserveAmount, setReserveAmount] = useState('');
-  const [showEditSavingsModal, setShowEditSavingsModal] = useState(false);
+  const [savedReserveAmount, setSavedReserveAmount] = useState('');
+  const [reserveAmountChanged, setReserveAmountChanged] = useState(false);
+  const [savingsGoalChanged, setSavingsGoalChanged] = useState(false);
   const [showSetupSavingsModal, setShowSetupSavingsModal] = useState(false);
   const [setupCurrentSavings, setSetupCurrentSavings] = useState('');
   const [setupSavingsGoal, setSetupSavingsGoal] = useState('');
@@ -57,6 +122,9 @@ const Profile = () => {
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === 'dark';
   const customInputBg = isDarkMode ? '#0F1115' : undefined;
+  const editableValueColor = isDarkMode ? '#F5F5F7' : color.black;
+  const lockedValueColor = isDarkMode ? '#8B909A' : '#7A7F89';
+  const confirmingAmountRef = useRef<'reserve' | 'savings' | null>(null);
   const updateUserData = useAuthStore(state => state.updateUserData);
 
   const getReminderDate = (timeValue?: string) => {
@@ -72,7 +140,8 @@ const Profile = () => {
     setProfileImage(user?.profileImage || '');
     setSelectedGoal(user?.goalType === 'debt' ? 'debt' : 'savings');
     setSavingsGoal(String(Number(user?.savingsGoal || 0)));
-    setDraftSavingsGoal(String(Number(user?.savingsGoal || 0)));
+    setSavedSavingsGoal(String(Number(user?.savingsGoal || 0)));
+    setSavingsGoalChanged(false);
     setIsFullAccess(Boolean(user?.paydayReminderEnabled));
     setSelectedTime(getReminderDate(user?.paydayReminderTime));
   }, []);
@@ -95,7 +164,10 @@ const Profile = () => {
       }
 
       setPrimaryBudgetId(String(targetBudget.id));
-      setReserveAmount(String(Number(targetBudget.reserveAmount || 0)));
+      const nextReserveAmount = String(Number(targetBudget.reserveAmount || 0));
+      setReserveAmount(nextReserveAmount);
+      setSavedReserveAmount(nextReserveAmount);
+      setReserveAmountChanged(false);
     } catch (error) {
       console.error('Unable to load budget account settings:', error);
     }
@@ -166,7 +238,8 @@ const Profile = () => {
     try {
       setSelectedGoal('savings');
       setSavingsGoal(String(nextSavingsGoal));
-      setDraftSavingsGoal(String(nextSavingsGoal));
+      setSavedSavingsGoal(String(nextSavingsGoal));
+      setSavingsGoalChanged(false);
       await updateProfile({goalType: 'save', savingsGoal: nextSavingsGoal});
       await updateBudgetsGoal('save', {
         currentSavings: nextCurrentSavings,
@@ -203,6 +276,20 @@ const Profile = () => {
     updateProfile({paydayReminderEnabled: value});
   };
 
+  const updateProfilePhoto = async () => {
+    const {pickImage} = await import('@/services/helpingMethods');
+    const uri = await pickImage({
+      mode: 'gallery',
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (uri) {
+      setProfileImage(uri);
+      updateProfile({profileImage: uri});
+    }
+  };
+
   const updateReserveAmount = async () => {
     if (!primaryBudgetId) {
       return;
@@ -214,10 +301,55 @@ const Profile = () => {
         reserveAmount: nextReserveAmount,
       });
       if (response.success && response.data) {
-        setReserveAmount(String(Number(response.data.reserveAmount || nextReserveAmount)));
+        const savedAmount = String(Number(response.data.reserveAmount || nextReserveAmount));
+        setReserveAmount(savedAmount);
+        setSavedReserveAmount(savedAmount);
+        setReserveAmountChanged(false);
+        Keyboard.dismiss();
       }
     } catch (error) {
+      setReserveAmount(savedReserveAmount);
       console.error('Unable to update reserve amount:', error);
+    } finally {
+      confirmingAmountRef.current = null;
+    }
+  };
+
+  const updateSavingsGoalAmount = async () => {
+    const nextSavingsGoal = Number(savingsGoal || 0);
+    try {
+      await updateProfile({savingsGoal: nextSavingsGoal});
+      await updateBudgetsGoal('save', {savingsGoal: nextSavingsGoal});
+      const savedAmount = String(nextSavingsGoal);
+      setSavingsGoal(savedAmount);
+      setSavedSavingsGoal(savedAmount);
+      setSavingsGoalChanged(false);
+      Keyboard.dismiss();
+    } catch (error) {
+      setSavingsGoal(savedSavingsGoal);
+      console.error('Unable to update budget savings goals:', error);
+    } finally {
+      confirmingAmountRef.current = null;
+    }
+  };
+
+  const revertReserveAmountIfUnconfirmed = () => {
+    if (confirmingAmountRef.current === 'reserve') {
+      return;
+    }
+    if (reserveAmountChanged) {
+      setReserveAmount(savedReserveAmount);
+      setReserveAmountChanged(false);
+    }
+  };
+
+  const revertSavingsGoalIfUnconfirmed = () => {
+    if (confirmingAmountRef.current === 'savings') {
+      return;
+    }
+    if (savingsGoalChanged) {
+      setSavingsGoal(savedSavingsGoal);
+      setSavingsGoalChanged(false);
     }
   };
 
@@ -242,7 +374,9 @@ const Profile = () => {
           paddingBottom: heightPixel(24),
           paddingHorizontal: widthPixel(20),
         }}>
-        <View
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={updateProfilePhoto}
           style={{
             height: heightPixel(110),
             width: heightPixel(110),
@@ -253,8 +387,7 @@ const Profile = () => {
             backgroundColor: color.profileBackground,
             borderWidth: 1,
             borderColor: color.dividerColor,
-          }}
-        >
+          }}>
           {profileImage ? (
             <Image
               source={{uri: profileImage}}
@@ -265,22 +398,10 @@ const Profile = () => {
               }}
             />
           ) : null}
-        </View>
+        </TouchableOpacity>
         <TouchableOpacity
           activeOpacity={0.85}
-          onPress={async () => {
-            const {pickImage} = await import('@/services/helpingMethods');
-            const uri = await pickImage({
-              mode: 'gallery',
-              allowsEditing: true,
-              aspect: [1, 1],
-              quality: 0.8,
-            });
-            if (uri) {
-              setProfileImage(uri);
-              updateProfile({profileImage: uri});
-            }
-          }}
+          onPress={updateProfilePhoto}
           style={{
             alignSelf: 'center',
             marginTop: heightPixel(10),
@@ -345,6 +466,7 @@ const Profile = () => {
         value={fullName}
         onChangeText={setFullName}
         onBlur={() => updateProfile({fullName})}
+        inputStyle={{color: editableValueColor}}
         inputContainerStyle={{
           backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
           borderRadius: 50,
@@ -363,6 +485,15 @@ const Profile = () => {
         placeholder="Email"
         value={email}
         editable={false}
+        inputStyle={{color: lockedValueColor}}
+        rightIconComponent={
+          <Ionicons
+            name="lock-closed-outline"
+            size={18}
+            color={lockedValueColor}
+            style={{marginRight: widthPixel(10)}}
+          />
+        }
         inputContainerStyle={{
           backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
           borderRadius: 50,
@@ -380,11 +511,26 @@ const Profile = () => {
         placeholderTextColor={color.shareBudgetText}
         placeholder="0"
         value={reserveAmount}
-        onChangeText={setReserveAmount}
-        onBlur={updateReserveAmount}
+        onChangeText={value => {
+          setReserveAmount(value);
+          setReserveAmountChanged(value !== savedReserveAmount);
+        }}
+        onBlur={revertReserveAmountIfUnconfirmed}
         editable={Boolean(primaryBudgetId)}
         keyboardType="numeric"
         useCurrencyIcon={true}
+        replaceOnFirstType
+        inputStyle={{color: editableValueColor}}
+        rightIconComponent={
+          <AmountDoneAction
+            active={reserveAmountChanged}
+            color={color.primary}
+            onPressIn={() => {
+              confirmingAmountRef.current = 'reserve';
+            }}
+            onPress={updateReserveAmount}
+          />
+        }
         inputContainerStyle={{
           backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
           borderRadius: 50,
@@ -500,43 +646,6 @@ const Profile = () => {
         </View>
       </View>
       <Spacer height={heightPixel(20)} />
-      {selectedGoal === 'savings' ? (
-        <>
-          <TextInput
-            title="Saving Goals"
-            onPress={() => setShowEditSavingsModal(true)}
-            titleStyle={{
-              fontSize: fontPixel(14),
-              color: color.tabicon,
-              fontFamily: 'regular',
-            }}
-            placeholderTextColor={color.black}
-            placeholder="0"
-            value={savingsGoal}
-            editable={false}
-            keyboardType="numeric"
-            useCurrencyIcon={true}
-            rightIconComponent={
-              <Image
-                source={appImages.Edit}
-                style={{
-                  height: heightPixel(20),
-                  width: heightPixel(20),
-                  resizeMode: 'contain',
-                  marginRight: widthPixel(10),
-                  tintColor: color.black,
-                }}
-              />
-            }
-            inputContainerStyle={{
-              backgroundColor: color.bg === '#121212' ? '#242830' : color.white,
-              borderRadius: 50,
-              paddingVertical: heightPixel(15),
-            }}
-          />
-          <Spacer height={heightPixel(25)} />
-        </>
-      ) : null}
       <View
         style={{
           flexDirection: 'row',
@@ -589,6 +698,7 @@ const Profile = () => {
             placeholder="Select Time"
             value={selectedTime ? formatTime(selectedTime) : ''}
             editable={false}
+            inputStyle={{color: editableValueColor}}
             rightIconComponent={
               <Image
                 source={appImages.Time}
@@ -671,37 +781,6 @@ const Profile = () => {
       />
 
       <BottomSheet
-        visible={showEditSavingsModal}
-        onClose={() => setShowEditSavingsModal(false)}
-        title={'Update Saving Goals'}
-        maxHeight={550}
-        hideTitleLine={true}
-        backgroundColor={color.inputField}>
-        <Spacer height={heightPixel(12)} />
-        <TextInput
-          title="Amount"
-          placeholder="0"
-          placeholderTextColor={color.tabicon}
-          value={draftSavingsGoal}
-          onChangeText={setDraftSavingsGoal}
-          inputContainerStyle={
-            customInputBg ? {backgroundColor: customInputBg} : undefined
-          }
-          keyboardType="numeric"
-          useCurrencyIcon={true}
-        />
-        <Spacer height={heightPixel(40)} />
-        <Button
-          title="Update"
-          onPress={() => {
-            updateProfile({savingsGoal: Number(draftSavingsGoal || 0)});
-            setShowEditSavingsModal(false);
-          }}
-        />
-        <Spacer height={heightPixel(30)} />
-      </BottomSheet>
-
-      <BottomSheet
         visible={showSetupSavingsModal}
         onClose={() => setShowSetupSavingsModal(false)}
         title="Set Up Savings"
@@ -719,6 +798,7 @@ const Profile = () => {
           }
           keyboardType="numeric"
           useCurrencyIcon={true}
+          replaceOnFirstType
         />
         <Spacer height={heightPixel(18)} />
         <TextInput
@@ -732,6 +812,7 @@ const Profile = () => {
           }
           keyboardType="numeric"
           useCurrencyIcon={true}
+          replaceOnFirstType
           error={Number(setupSavingsGoal || 0) <= 0 ? 'Savings Goal required' : undefined}
           touched={setupSavingsGoal.length > 0}
         />

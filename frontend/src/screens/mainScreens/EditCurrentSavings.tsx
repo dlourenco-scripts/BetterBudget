@@ -32,6 +32,7 @@ const EditCurrentSavings = () => {
         placeholder={'0'}
         keyboardType="numeric"
         useCurrencyIcon={true}
+        replaceOnFirstType
         inputContainerStyle={{
           backgroundColor: color.white,
         }}

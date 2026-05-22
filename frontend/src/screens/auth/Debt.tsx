@@ -29,6 +29,7 @@ const Debt = () => {
   const [isEditMode, setIsEditMode] = useState(false);
   const [debtName, setDebtName] = useState('');
   const [debtAmount, setDebtAmount] = useState('');
+  const [lastSavedDebt, setLastSavedDebt] = useState<{name: string; balance: number} | null>(null);
   const [saving, setSaving] = useState(false);
 
   const color = useThemeColor();
@@ -66,6 +67,11 @@ const Debt = () => {
         Alert.alert('Unable to save debt', response.message || 'Please try again.');
         return;
       }
+
+      setLastSavedDebt({
+        name: response.data?.name || values.debtName,
+        balance: Number(response.data?.balance ?? values.debtAmount),
+      });
 
       if (fromHome === 'true') {
         router.back();
@@ -157,6 +163,7 @@ const Debt = () => {
               touched={touched.debtAmount}
               keyboardType="numeric"
               useCurrencyIcon={true}
+              replaceOnFirstType
               inputContainerStyle={{
                 backgroundColor: color.inputField,
               }}
@@ -189,6 +196,15 @@ const Debt = () => {
             style={{textAlign: 'center'}}>
             Debt saved.
           </Text>
+          {lastSavedDebt && (
+            <Text
+              variant="medium"
+              size={15}
+              color={color.black}
+              style={{textAlign: 'center'}}>
+              {lastSavedDebt.name} • ${lastSavedDebt.balance.toLocaleString()}
+            </Text>
+          )}
         </View>
         <Spacer height={20} />
         <Button
@@ -204,8 +220,6 @@ const Debt = () => {
           onPress={() => {
             setShowIncomeSheet(false);
             clearForm();
-            router.navigate('/auth/Debt');
-            // Navigate to add income screen or open add form
           }}
         />
         <Spacer height={Platform.OS === 'ios' ? 20 : 0} />

@@ -1,7 +1,6 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {
   Alert,
-  FlatList,
   Image,
   Keyboard,
   Modal,
@@ -136,7 +135,7 @@ const RecurringExpenses = () => {
   const [paymentSources, setPaymentSources] = useState<string[]>([]);
   const [newPaymentSource, setNewPaymentSource] = useState('');
   const [showFrequencySheet, setShowFrequencySheet] = useState(false);
-  const [selectedFrequency, setSelectedFrequency] = useState('Every Pay Cycle');
+  const [selectedFrequency, setSelectedFrequency] = useState('');
   const [showExpenseSheet, setShowExpenseSheet] = useState(false);
   const [selectedExpense, setSelectedExpense] = useState('');
   const [expenseName, setExpenseName] = useState('');
@@ -160,9 +159,11 @@ const RecurringExpenses = () => {
   const [formResetKey, setFormResetKey] = useState(0);
   const [deletingExpenseId, setDeletingExpenseId] = useState<string | null>(null);
   const expenseNameInputRef = useRef<NativeTextInput>(null);
+  const expenseAmountInputRef = useRef<NativeTextInput>(null);
   const recurringExpenseResetFormRef = useRef<((nextState?: any) => void) | null>(null);
   const openSavedExpenseSwipeableRef = useRef<Swipeable | null>(null);
   const savedExpenseSwipeableRefs = useRef<Record<string, Swipeable | null>>({});
+  const [guidedField, setGuidedField] = useState<'dueDate' | null>(null);
 
   const closeOpenSavedExpenseSwipeable = useCallback(() => {
     openSavedExpenseSwipeableRef.current?.close();
@@ -221,7 +222,7 @@ const RecurringExpenses = () => {
     setSelectedExpense('');
     setActiveTab('fixed');
     setSelectedPaymentSource('');
-    setSelectedFrequency('Every Pay Cycle');
+    setSelectedFrequency('');
     setSelectedDate('');
     if (resetForm) {
       resetForm({
@@ -278,6 +279,9 @@ const RecurringExpenses = () => {
       return;
     }
     if (!selectedPaymentSource.trim()) {
+      return;
+    }
+    if (!selectedFrequency.trim()) {
       return;
     }
 
@@ -379,6 +383,59 @@ const RecurringExpenses = () => {
     {label: 'Annually', value: 'Annually'},
   ];
 
+  const renderCategoryGrid = (
+    categories: Array<{icon?: any; vectorIcon?: string; label: string}>,
+  ) => (
+    <View style={styles.categoryGrid}>
+      {categories.map(item => (
+        <TouchableOpacity
+          key={item.label}
+          style={styles.categoryGridItem}
+          activeOpacity={0.7}
+          onPress={() => {
+            setSelectedExpense(item.label);
+            setShowExpenseSheet(false);
+            setTimeout(() => setShowPaymentSourceSheet(true), 250);
+          }}>
+          <View
+            style={{
+              borderRadius: heightPixel(50),
+              padding: heightPixel(15),
+              backgroundColor: color.primary,
+              marginBottom: heightPixel(8),
+              width: widthPixel(55),
+              height: widthPixel(55),
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}>
+            {item.vectorIcon ? (
+              <Feather name={item.vectorIcon as any} size={24} color={color.black} />
+            ) : (
+              <Image
+                source={item.icon}
+                style={{
+                  height: heightPixel(35),
+                  width: widthPixel(35),
+                  resizeMode: 'contain',
+                }}
+              />
+            )}
+          </View>
+          <Text
+            variant="medium"
+            size={12}
+            color={color.tabicon}
+            numberOfLines={2}
+            style={{
+              textAlign: 'center',
+            }}>
+            {item.label}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
   return (
     <Wrapper
       keyboardProps={{
@@ -430,6 +487,12 @@ const RecurringExpenses = () => {
               ref={expenseNameInputRef}
               title="Expense Name"
               placeholder="Expense Name"
+              returnKeyType="next"
+              blurOnSubmit={false}
+              onSubmitEditing={() => {
+                Keyboard.dismiss();
+                setShowExpenseSheet(true);
+              }}
               value={values.expenseName}
               onChangeText={text => {
                 setExpenseName(text);
@@ -572,19 +635,27 @@ const RecurringExpenses = () => {
             </View>
             <Spacer height={heightPixel(20)} />
             <TextInput
+              ref={expenseAmountInputRef}
               title={activeTab === 'fixed' ? 'Fixed Amount' : 'Variable Amount'}
               titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
               placeholder="0"
+              returnKeyType="next"
+              blurOnSubmit={false}
               value={values.expenseAmount}
               onChangeText={text => {
                 setExpenseAmount(text);
                 setFieldValue('expenseAmount', text);
               }}
               onBlur={handleBlur('expenseAmount')}
+              onSubmitEditing={() => {
+                Keyboard.dismiss();
+                setShowFrequencySheet(true);
+              }}
               error={errors.expenseAmount}
               touched={submitCount > 0}
               keyboardType="numeric"
               useCurrencyIcon={true}
+              replaceOnFirstType
               inputContainerStyle={{
                 backgroundColor: color.inputField,
               }}
@@ -594,9 +665,11 @@ const RecurringExpenses = () => {
               title="Frequency"
               infoicon={appImages.Aboutimg}
               onInfoIconPress={() => setShowFrequencyInfo(!showFrequencyInfo)}
-              placeholder={selectedFrequency}
+              placeholder={selectedFrequency || 'Select Frequency'}
               titleStyle={{color: color.tabicon, fontFamily: 'regular'}}
               value={selectedFrequency}
+              error="Frequency is required"
+              touched={submitCount > 0 && !selectedFrequency.trim()}
               inputContainerStyle={{
                 backgroundColor: color.inputField,
               }}
@@ -615,7 +688,10 @@ const RecurringExpenses = () => {
             <TextInput
               title="Next Pay Date"
               rightIcon={appImages.Calenderimg}
-              onPress={() => setShowCalendarSheet(true)}
+              onPress={() => {
+                setGuidedField(null);
+                setShowCalendarSheet(true);
+              }}
               infoIconPosition="beside"
               infoicon={appImages.Aboutimg}
               onInfoIconPress={() =>
@@ -633,6 +709,9 @@ const RecurringExpenses = () => {
               editable={false}
               inputContainerStyle={{
                 backgroundColor: color.inputField,
+                ...(guidedField === 'dueDate'
+                  ? {borderWidth: 1, borderColor: color.primary}
+                  : {}),
               }}
               rightIconStyle={{
                 height: heightPixel(28),
@@ -662,7 +741,10 @@ const RecurringExpenses = () => {
         <RadioList
           options={PaymentSourceOptions}
           selectedValue={selectedPaymentSource}
-          onSelect={setSelectedPaymentSource}
+          onSelect={value => {
+            setSelectedPaymentSource(value);
+            setTimeout(() => expenseAmountInputRef.current?.focus(), 250);
+          }}
           onClose={() => setShowPaymentSourceSheet(false)}
         />
         {paymentSources.length === 0 && (
@@ -709,7 +791,13 @@ const RecurringExpenses = () => {
         <RadioList
           options={frequencyOptions}
           selectedValue={selectedFrequency}
-          onSelect={setSelectedFrequency}
+          onSelect={value => {
+            setSelectedFrequency(value);
+            setTimeout(() => {
+              setGuidedField('dueDate');
+              setShowCalendarSheet(true);
+            }, 250);
+          }}
           onClose={() => setShowFrequencySheet(false)}
         />
       </BottomSheet>
@@ -739,63 +827,7 @@ const RecurringExpenses = () => {
             marginHorizontal: widthPixel(20),
           }}
         />
-        <FlatList
-          data={essentialCategories}
-          numColumns={4}
-          keyExtractor={(item, index) => index.toString()}
-          contentContainerStyle={{
-            marginBottom: heightPixel(20),
-          }}
-          renderItem={({item}) => (
-            <TouchableOpacity
-              style={{
-                alignItems: 'center',
-                marginBottom: heightPixel(20),
-                flex: 1,
-                marginTop: heightPixel(10),
-              }}
-              activeOpacity={0.7}
-              onPress={() => {
-                setSelectedExpense(item.label);
-                setShowExpenseSheet(false);
-              }}>
-              <View
-                style={{
-                  borderRadius: heightPixel(50),
-                  padding: heightPixel(15),
-                  backgroundColor: color.primary,
-                  marginBottom: heightPixel(8),
-                  width: widthPixel(55),
-                  height: widthPixel(55),
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}>
-                {item.vectorIcon ? (
-                  <Feather name={item.vectorIcon as any} size={24} color={color.black} />
-                ) : (
-                  <Image
-                    source={item.icon}
-                    style={{
-                      height: heightPixel(35),
-                      width: widthPixel(35),
-                      resizeMode: 'contain',
-                    }}
-                  />
-                )}
-              </View>
-              <Text
-                variant="medium"
-                size={12}
-                color={color.tabicon}
-                numberOfLines={2}
-                style={{
-                  textAlign: 'center',
-                }}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
+        {renderCategoryGrid(essentialCategories)}
 
         <Text
           variant="semibold"
@@ -816,59 +848,7 @@ const RecurringExpenses = () => {
             marginHorizontal: widthPixel(20),
           }}
         />
-        <FlatList
-          data={financialObligationCategories}
-          numColumns={4}
-          keyExtractor={(item, index) => index.toString()}
-          contentContainerStyle={{
-            marginBottom: heightPixel(20),
-          }}
-          renderItem={({item}) => (
-            <TouchableOpacity
-              style={{
-                alignItems: 'center',
-                marginBottom: heightPixel(20),
-                flex: 1,
-                marginTop: heightPixel(10),
-              }}
-              activeOpacity={0.7}
-              onPress={() => {
-                setSelectedExpense(item.label);
-                setShowExpenseSheet(false);
-              }}>
-              <View
-                style={{
-                  borderRadius: heightPixel(50),
-                  padding: heightPixel(15),
-                  backgroundColor: color.primary,
-                  marginBottom: heightPixel(8),
-                  width: widthPixel(55),
-                  height: widthPixel(55),
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}>
-                <Image
-                  source={item.icon}
-                  style={{
-                    height: heightPixel(35),
-                    width: widthPixel(35),
-                    resizeMode: 'contain',
-                  }}
-                />
-              </View>
-              <Text
-                variant="medium"
-                size={12}
-                color={color.tabicon}
-                numberOfLines={2}
-                style={{
-                  textAlign: 'center',
-                }}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
+        {renderCategoryGrid(financialObligationCategories)}
         <Text
           variant="semibold"
           size={fontPixel(20)}
@@ -888,59 +868,7 @@ const RecurringExpenses = () => {
             marginHorizontal: widthPixel(20),
           }}
         />
-        <FlatList
-          data={lifeStyle}
-          numColumns={4}
-          keyExtractor={(item, index) => index.toString()}
-          contentContainerStyle={{
-            marginBottom: heightPixel(20),
-          }}
-          renderItem={({item}) => (
-            <TouchableOpacity
-              style={{
-                alignItems: 'center',
-                marginBottom: heightPixel(20),
-                flex: 1,
-                marginTop: heightPixel(10),
-              }}
-              activeOpacity={0.7}
-              onPress={() => {
-                setSelectedExpense(item.label);
-                setShowExpenseSheet(false);
-              }}>
-              <View
-                style={{
-                  borderRadius: heightPixel(50),
-                  padding: heightPixel(15),
-                  backgroundColor: color.primary,
-                  marginBottom: heightPixel(8),
-                  width: widthPixel(55),
-                  height: widthPixel(55),
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}>
-                <Image
-                  source={item.icon}
-                  style={{
-                    height: heightPixel(35),
-                    width: widthPixel(35),
-                    resizeMode: 'contain',
-                  }}
-                />
-              </View>
-              <Text
-                variant="medium"
-                size={12}
-                color={color.tabicon}
-                numberOfLines={2}
-                style={{
-                  textAlign: 'center',
-                }}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          )}
-        />
+        {renderCategoryGrid(lifeStyle)}
       </BottomSheet>
       <BottomSheet
         visible={ShowIncomeSheet}
@@ -1254,16 +1182,21 @@ const RecurringExpenses = () => {
         title=""
         hideTitleLine
         backgroundColor={color.inputField}
-        maxHeight={320}>
+        maxHeight={360}>
         <View style={styles.successSheetContent}>
           <Text size={18} variant="semibold" color={color.black} style={{textAlign: 'center'}}>
             Recurring expense added.
           </Text>
           {lastSavedRecurringExpense && (
-            <Text size={15} variant="medium" color={color.black} style={{textAlign: 'center'}}>
-              {lastSavedRecurringExpense.name} • ${formatSuccessAmount(lastSavedRecurringExpense.amount)} • Due{' '}
-              {formatDueDay(lastSavedRecurringExpense.dueDate) || '-'}
-            </Text>
+            <View style={styles.successSheetDetails}>
+              <Text size={17} variant="semibold" color={color.black} style={{textAlign: 'center'}}>
+                {lastSavedRecurringExpense.name}
+              </Text>
+              <Text size={15} variant="medium" color={color.black} style={{textAlign: 'center'}}>
+                ${formatSuccessAmount(lastSavedRecurringExpense.amount)} • Due{' '}
+                {formatDueDay(lastSavedRecurringExpense.dueDate) || '-'}
+              </Text>
+            </View>
           )}
           <View style={styles.successSheetActions}>
             <TouchableOpacity
@@ -1342,6 +1275,17 @@ const RecurringExpenses = () => {
 };
 
 const styles = StyleSheet.create({
+  categoryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: heightPixel(20),
+  },
+  categoryGridItem: {
+    alignItems: 'center',
+    marginBottom: heightPixel(20),
+    marginTop: heightPixel(10),
+    width: '25%',
+  },
   modalOverlay: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -1407,23 +1351,28 @@ const styles = StyleSheet.create({
     textAlign: 'left',
   },
   successSheetContent: {
-    gap: heightPixel(10),
-    paddingHorizontal: widthPixel(8),
-    paddingTop: heightPixel(8),
+    gap: heightPixel(16),
+    paddingHorizontal: widthPixel(12),
+    paddingTop: heightPixel(22),
+    paddingBottom: heightPixel(24),
+  },
+  successSheetDetails: {
+    gap: heightPixel(6),
+    paddingVertical: heightPixel(4),
   },
   successSheetActions: {
     flexDirection: 'row',
     justifyContent: 'center',
-    gap: widthPixel(10),
+    gap: widthPixel(18),
     marginTop: heightPixel(8),
   },
   successSheetButton: {
-    minWidth: widthPixel(112),
-    minHeight: heightPixel(38),
-    borderRadius: 9,
+    width: widthPixel(142),
+    minHeight: heightPixel(54),
+    borderRadius: heightPixel(28),
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: widthPixel(14),
+    paddingHorizontal: widthPixel(18),
   },
   successSheetSecondaryButton: {
     borderWidth: 1,

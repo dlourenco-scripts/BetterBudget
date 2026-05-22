@@ -40,6 +40,9 @@ interface CustomHeaderProps {
   onSavingsUpdate?: (values: {currentSavings?: number; savingsGoal?: number}) => void;
   onIncomeUpdate?: (amount: number, applyToAll: boolean) => Promise<boolean> | boolean | void;
   onAddFromSavings?: (amount: number) => void;
+  currentSavingsEditOpenKey?: number;
+  savingsGoalEditOpenKey?: number;
+  incomeEditOpenKey?: number;
 }
 
 const CustomHeader: React.FC<CustomHeaderProps> = ({
@@ -61,6 +64,9 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   onSavingsUpdate,
   onIncomeUpdate,
   onAddFromSavings,
+  currentSavingsEditOpenKey = 0,
+  savingsGoalEditOpenKey = 0,
+  incomeEditOpenKey = 0,
 }) => {
   const color = useThemeColor();
   const colorScheme = useColorScheme();
@@ -73,7 +79,6 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
   const customSheetBg = isDarkMode ? '#171A21' : undefined;
   const customInputBg = isDarkMode ? '#0F1115' : undefined;
   const [ShowBudgetSection, setShowBudgetSection] = useState(false);
-  const [showBudgetList, setShowBudgetList] = useState(false);
   const [showIncomeInfo, setShowIncomeInfo] = useState(false);
   const [isEnabled, setIsEnabled] = useState(autoFillEnabled);
   const toggleSwitch = () => {
@@ -120,6 +125,32 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
       String(sheetMode === 'goal' ? savingsGoal || '' : currentSavings || ''),
     );
   }, [currentSavings, savingsGoal, sheetMode, showEditSavingsSheet]);
+
+  useEffect(() => {
+    if (currentSavingsEditOpenKey <= 0) {
+      return;
+    }
+
+    setSheetMode('edit');
+    setShowEditSavingsSheet(true);
+  }, [currentSavingsEditOpenKey]);
+
+  useEffect(() => {
+    if (savingsGoalEditOpenKey <= 0) {
+      return;
+    }
+
+    setSheetMode('goal');
+    setShowEditSavingsSheet(true);
+  }, [savingsGoalEditOpenKey]);
+
+  useEffect(() => {
+    if (incomeEditOpenKey <= 0) {
+      return;
+    }
+
+    openEditIncomeSheet();
+  }, [incomeEditOpenKey]);
 
   useEffect(() => {
     if (showEditIncomeSheet) {
@@ -180,41 +211,9 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
     if (currentStep === 9) {
       setTimeout(() => {
         router.navigate('/(tabs)/InsightScreen');
-        setShowBudgetList(false); // Close the sheet if open
       }, 500);
     }
   }, [currentStep]);
-
-  const budgetData = [
-    {
-      id: 1,
-      title: 'Share Budget',
-      onPress: () => {
-        router.navigate('/mainScreens/SharingBudget');
-      },
-    },
-    {
-      id: 2,
-      title: 'Edit Budget Income',
-      onPress: openEditIncomeSheet,
-    },
-    {
-      id: 3,
-      title: 'Edit Current Savings',
-      onPress: () => {
-        setSheetMode('edit');
-        setShowEditSavingsSheet(true);
-      },
-    },
-    {
-      id: 4,
-      title: 'Update Savings Goal',
-      onPress: () => {
-        setSheetMode('goal');
-        setShowEditSavingsSheet(true);
-      },
-    },
-  ];
 
   return (
     <>
@@ -281,18 +280,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             </TouchableOpacity>
           </View>
         </WalkthroughTooltip>
-        <View style={styles.rightContainer}>
-          <TouchableOpacity
-            activeOpacity={0.8}
-            style={{
-              borderRadius: 50,
-              backgroundColor: color.tabBackground,
-              padding: 4,
-            }}
-            onPress={() => setShowBudgetList(true)}>
-            <Feather name="more-horizontal" size={22} color={color.tabicon} />
-          </TouchableOpacity>
-        </View>
+        <View style={styles.rightContainer} />
       </View>
       <Spacer height={20} />
       <WalkthroughTooltip
@@ -339,12 +327,19 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
             const isBudgetPrimary = budget.id === primaryBudgetId;
             const isBudgetSelected = budget.id === selectedBudgetId;
             return (
-              <View
+              <TouchableOpacity
                 key={budget.id}
+                activeOpacity={0.82}
+                onPress={() => {
+                  setShowBudgetSection(false);
+                  setSelectedBudget(budget.name);
+                  onBudgetSelect?.(budget.id);
+                }}
                 style={{
                   backgroundColor: isDarkMode ? '#0F1115' : color.tabBackground,
                   borderRadius: heightPixel(10),
-                  paddingHorizontal: widthPixel(12),
+                  paddingLeft: widthPixel(12),
+                  paddingRight: widthPixel(14),
                   paddingVertical: heightPixel(12),
                   flexDirection: 'row',
                   alignItems: 'center',
@@ -361,7 +356,8 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                   style={{flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8}}>
                   <TouchableOpacity
                     activeOpacity={0.7}
-                    onPress={() => {
+                    onPress={(event: any) => {
+                      event.stopPropagation?.();
                       if (budget.id !== primaryBudgetId) {
                         onPrimaryBudgetChange?.(budget.id);
                       }
@@ -377,20 +373,19 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                       />
                     )}
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => {
-                      setShowBudgetSection(false);
-                      setSelectedBudget(budget.name);
-                      onBudgetSelect?.(budget.id);
-                    }}
-                    style={{flex: 1}}>
+                  <View style={{flex: 1}}>
                     <Text variant="medium" size={17} color={color.black} numberOfLines={1}>
                       {budget.name}
                     </Text>
-                  </TouchableOpacity>
+                  </View>
                 </View>
-                <View style={{flexDirection: 'row', alignItems: 'center', gap: widthPixel(8)}}>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: widthPixel(14),
+                    marginLeft: widthPixel(10),
+                  }}>
                   <TouchableOpacity
                     activeOpacity={0.7}
                     onPress={(event: any) => {
@@ -399,35 +394,50 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
                       openBudgetRename(budget);
                     }}
                     style={{
-                      backgroundColor: isDarkMode ? '#0F1115' : color.bg,
-                      padding: widthPixel(5),
+                      backgroundColor: isDarkMode
+                        ? 'rgba(255, 255, 255, 0.08)'
+                        : color.bg,
+                      width: widthPixel(34),
+                      height: heightPixel(34),
                       borderRadius: heightPixel(50),
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}>
-                    <Feather name="edit-2" size={14} color={color.black} />
+                    <Feather
+                      name="edit-2"
+                      size={15}
+                      color={isDarkMode ? '#F3F4F6' : color.black}
+                    />
                   </TouchableOpacity>
                   <TouchableOpacity
                     activeOpacity={0.7}
-                    onPress={() => {
+                    onPress={(event: any) => {
+                      event.stopPropagation?.();
                       onDeletePress?.();
                       setShowBudgetSection(false);
                     }}
                     style={{
-                      backgroundColor: isDarkMode ? '#0F1115' : color.bg,
-                      padding: widthPixel(3),
+                      backgroundColor: isDarkMode
+                        ? 'rgba(255, 105, 105, 0.1)'
+                        : color.bg,
+                      width: widthPixel(34),
+                      height: heightPixel(34),
                       borderRadius: heightPixel(50),
+                      alignItems: 'center',
+                      justifyContent: 'center',
                     }}>
                     <Image
                       source={appImages.Deleteimg}
                       style={{
-                        width: widthPixel(13),
-                        height: heightPixel(13),
+                        width: widthPixel(14),
+                        height: heightPixel(14),
                         resizeMode: 'contain',
-                        tintColor: color.black,
-                    }}
-                  />
-                </TouchableOpacity>
-              </View>
-              </View>
+                        tintColor: isDarkMode ? '#FF8A7A' : color.black,
+                      }}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
             );
           })}
         </View>
@@ -492,78 +502,6 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
           />
         </View>
       </BottomSheet>
-      <BottomSheet
-        visible={showBudgetList}
-        onClose={() => setShowBudgetList(false)}
-        title=""
-        hideTitleLine={true}
-        backgroundColor={color.inputField}>
-        <Spacer height={heightPixel(40)} />
-        <View style={{gap: widthPixel(20), marginBottom: heightPixel(40)}}>
-          {budgetData.map((item, index) =>
-            index === 0 ? (
-              <TouchableOpacity
-                key={item.id}
-                style={{
-                  width: '80%',
-                  backgroundColor: color.bg,
-                  borderRadius: heightPixel(12),
-                  paddingHorizontal: widthPixel(13),
-                  paddingVertical: heightPixel(12),
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  borderWidth: 1,
-                  borderColor: color.primary,
-                  marginHorizontal: widthPixel(35),
-                }}
-                activeOpacity={0.8}
-                onPress={() => {
-                  setShowBudgetList(false);
-                  item.onPress();
-                }}>
-                <Text variant="regular" size={16} color={color.black}>
-                  {item.title}
-                </Text>
-                <Feather
-                  name="chevron-right"
-                  size={22}
-                  color={color.walletbg}
-                />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                key={item.id}
-                style={{
-                  backgroundColor: color.bg,
-                  borderRadius: heightPixel(12),
-                  paddingHorizontal: widthPixel(13),
-                  paddingVertical: heightPixel(12),
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  borderWidth: 1,
-                  borderColor: color.primary,
-                  marginHorizontal: widthPixel(35),
-                }}
-                activeOpacity={0.8}
-                onPress={() => {
-                  setShowBudgetList(false);
-                  item.onPress();
-                }}>
-                <Text variant="regular" size={16} color={color.black}>
-                  {item.title}
-                </Text>
-                <Feather
-                  name="chevron-right"
-                  size={22}
-                  color={color.walletbg}
-                />
-              </TouchableOpacity>
-            ),
-          )}
-        </View>
-      </BottomSheet>
       <InfoTooltip
         visible={showIncomeInfo}
         title="Auto fill feature:"
@@ -588,6 +526,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
           onChangeText={setCurrentSavingsAmount}
           keyboardType="numeric"
           useCurrencyIcon={true}
+          replaceOnFirstType
           inputContainerStyle={
             customInputBg ? {backgroundColor: customInputBg} : undefined
           }
@@ -719,6 +658,7 @@ const CustomHeader: React.FC<CustomHeaderProps> = ({
               }
               keyboardType="numeric"
               useCurrencyIcon={true}
+              replaceOnFirstType
               inputContainerStyle={
                 customInputBg ? {backgroundColor: customInputBg} : undefined
               }

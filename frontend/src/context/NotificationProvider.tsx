@@ -91,14 +91,20 @@ export const NotificationProvider: React.FC<{children: React.ReactNode}> = ({
   const addNotification = useCallback(
     async (notification: AddNotificationInput) => {
       const now = new Date().toISOString();
+      const existingDuplicate = notificationsRef.current.find(existing => {
+        if (notification.dedupeKey) {
+          return existing.dedupeKey === notification.dedupeKey;
+        }
+        return notification.id ? existing.id === notification.id : false;
+      });
       const nextNotification: AppNotification = {
         id:
           notification.id ||
           `${notification.type || 'notification'}-${Date.now()}-${Math.random()
             .toString(36)
             .slice(2, 8)}`,
-        createdAt: notification.createdAt || now,
-        isRead: notification.isRead ?? false,
+        createdAt: notification.createdAt || existingDuplicate?.createdAt || now,
+        isRead: notification.isRead ?? existingDuplicate?.isRead ?? false,
         type: notification.type || 'general',
         ...notification,
       };

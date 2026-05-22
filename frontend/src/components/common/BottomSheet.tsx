@@ -36,6 +36,8 @@ interface BottomSheetProps {
   dismissible?: boolean;
   headerLeft?: ReactNode;
   footer?: ReactNode;
+  titleSize?: number;
+  headerPaddingVertical?: number;
 }
 
 export const BottomSheet: React.FC<BottomSheetProps> = ({
@@ -49,6 +51,8 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
   dismissible = true,
   headerLeft,
   footer,
+  titleSize = 22,
+  headerPaddingVertical,
 }) => {
   const color = useThemeColor();
   const colorScheme = useAppColorScheme();
@@ -144,6 +148,9 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
                     borderBottomColor: titleLineColor,
                     borderBottomWidth: hideTitleLine ? 0 : 1,
                     marginHorizontal: widthPixel(30),
+                    ...(headerPaddingVertical !== undefined
+                      ? {paddingVertical: heightPixel(headerPaddingVertical)}
+                      : {}),
                   },
                 ]}>
                 {headerLeft ? (
@@ -151,7 +158,7 @@ export const BottomSheet: React.FC<BottomSheetProps> = ({
                 ) : null}
                 <Text
                   variant="medium"
-                  size={22}
+                  size={titleSize}
                   color={color.black}
                   numberOfLines={1}
                   style={

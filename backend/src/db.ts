@@ -266,6 +266,17 @@ const initializeSchema = async () => {
     `);
 
     await client.query(`
+      CREATE TABLE IF NOT EXISTS support_requests (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        email TEXT NOT NULL,
+        message TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'new',
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    await client.query(`
       ALTER TABLE allocations
       ADD COLUMN IF NOT EXISTS applied_at TIMESTAMP
     `);
